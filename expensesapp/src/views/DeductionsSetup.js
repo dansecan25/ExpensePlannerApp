@@ -7,6 +7,7 @@ import {dropdownStyles} from "../components/customDropdown/dropdownStylesCustom.
 import CustomButton from "../components/customButton/customButton.js"
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
+import { insertOtherTaxes, insertSalaryDeductions } from "../utils/database_connector.js";
 
 const DeductionSetupScreen = ({ navigation }) => {
   const [typedValue, setTypedValue] = useState("");
@@ -43,6 +44,32 @@ const DeductionSetupScreen = ({ navigation }) => {
             setOtherTaxes(otherTaxes.slice(0, -1));
         }
     };
+
+
+    const parseSalaryRanges = (salaryRanges) => {
+        return salaryRanges.map(({ range, percentage }) => {
+            const parts = range.split("-");
+
+            const min_salary = parseFloat(parts[0]);
+            const max_salary =
+            parts.length > 1 && parts[1] !== ""
+                ? parseFloat(parts[1])
+                : null;
+
+            return {
+            min_salary,
+            max_salary,
+            percentage: parseFloat(percentage),
+            };
+        });
+    };
+    const parseOtherTaxes = (otherTaxes) => {
+        return otherTaxes.map(({ name, percentage }) => ({
+            name,
+            percentage: parseFloat(percentage),
+        }));
+    };
+
 
 
 
@@ -159,10 +186,18 @@ const DeductionSetupScreen = ({ navigation }) => {
                 type="primary"
                 text="Save deductions"
                 style={{ marginTop: 40 }}
-                onPress={() => {
-                    console.log("Salary ranges:", salaryRanges);
-                    console.log("Other taxes:", otherTaxes);
+                onPress={async () => {
+                    const parsedSalaryRanges = parseSalaryRanges(salaryRanges);
+                    const parsedOtherTaxes = parseOtherTaxes(otherTaxes);
+
+                    await insertSalaryDeductions(parsedSalaryRanges);
+                    await insertOtherTaxes(parsedOtherTaxes);
+
+                    console.log("Saved salary ranges:", parsedSalaryRanges);
+                    console.log("Saved other taxes:", parsedOtherTaxes);
+                    navigation.navigate("Home");
                 }}
+
             />
 
 
