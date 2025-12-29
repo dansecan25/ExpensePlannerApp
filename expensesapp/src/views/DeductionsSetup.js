@@ -8,6 +8,7 @@ import CustomButton from "../components/customButton/customButton.js"
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
 import { insertOtherTaxes, insertSalaryDeductions } from "../utils/database_connector.js";
+import { CommonActions } from "@react-navigation/native";
 
 const DeductionSetupScreen = ({ navigation }) => {
   const [typedValue, setTypedValue] = useState("");
@@ -190,12 +191,24 @@ const DeductionSetupScreen = ({ navigation }) => {
                     const parsedSalaryRanges = parseSalaryRanges(salaryRanges);
                     const parsedOtherTaxes = parseOtherTaxes(otherTaxes);
 
-                    await insertSalaryDeductions(parsedSalaryRanges);
-                    await insertOtherTaxes(parsedOtherTaxes);
-
                     console.log("Saved salary ranges:", parsedSalaryRanges);
                     console.log("Saved other taxes:", parsedOtherTaxes);
-                    navigation.navigate("Home");
+                    try {
+                        
+
+                        await insertSalaryDeductions(parsedSalaryRanges);
+                        await insertOtherTaxes(parsedOtherTaxes);
+
+                        
+                        navigation.dispatch(
+                            CommonActions.reset({
+                            index: 0,
+                            routes: [{ name: "Home" }],
+                            })
+                        );
+                        } catch (err) {
+                            console.error("Failed to save deductions", err);
+                        }
                 }}
 
             />

@@ -167,22 +167,30 @@ export const addSalary = async ({
   }
 };
 
-export const insertSalaryDeductions = async (deductions) => {
+export const insertSalaryDeductions = async (ranges) => {
   const db = getDB();
 
-  for (const { min_salary, max_salary, percentage } of deductions) {
-    await db.execute(
-      `
-      INSERT INTO salary_deductions (
-        min_salary,
-        max_salary,
-        percentage
-      ) VALUES (?, ?, ?);
-      `,
-      [min_salary, max_salary, percentage]
-    );
+  for (const r of ranges) {
+    if (r.max_salary === null) {
+      await db.execute(
+        `
+        INSERT INTO salary_deductions (min_salary, max_salary, percentage)
+        VALUES (?, NULL, ?);
+        `,
+        [r.min_salary, r.percentage]
+      );
+    } else {
+      await db.execute(
+        `
+        INSERT INTO salary_deductions (min_salary, max_salary, percentage)
+        VALUES (?, ?, ?);
+        `,
+        [r.min_salary, r.max_salary, r.percentage]
+      );
+    }
   }
 };
+
 
 
 export const insertOtherTaxes = async (taxes) => {

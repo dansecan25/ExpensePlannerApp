@@ -5,10 +5,9 @@ import getColors from '../utils/color-picker';
 import CustomText from '../components/customText/customText';
 import CustomButton from '../components/customButton/customButton';
 import { resetDatabase } from '../utils/database_connector';
+import { CommonActions } from '@react-navigation/native';
 
 export default function MainScreen({ navigation }) {
-
-
 
   return (
     <SafeAreaView style={styles.container}>
@@ -25,6 +24,12 @@ export default function MainScreen({ navigation }) {
                 text="Restar databases"
                 onPress={async ()=>{
                     await resetDatabase();
+                    navigation.dispatch(
+                        CommonActions.reset({
+                        index: 0,
+                        routes: [{ name: "Home" }],
+                        })
+                    );
                 }}
             />
             
