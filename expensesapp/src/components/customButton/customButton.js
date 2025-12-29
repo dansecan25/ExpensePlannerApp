@@ -12,6 +12,8 @@ export default function CustomButton({
   icon = null,
   onPress,
   disabled = false,
+  style = {},
+  fontSize = 16, // 👈 NEW PROP
 }) {
   const hasText = Boolean(text);
   const hasIcon = Boolean(icon);
@@ -21,6 +23,7 @@ export default function CustomButton({
     styles[type],
     disabled && styles.disabled,
     !hasText && hasIcon && styles.iconOnly,
+    style,
   ];
 
   return (
@@ -32,13 +35,19 @@ export default function CustomButton({
     >
       <View style={styles.content}>
         {hasText && (
-          <Text style={[styles.text, styles[`${type}Text`]]}>
+          <Text
+            style={[
+              styles.text,
+              styles[`${type}Text`],
+              { fontSize }, // 👈 APPLY HERE
+            ]}
+          >
             {text}
           </Text>
         )}
 
         {hasIcon && (
-          <View style={[hasText ? styles.iconRight : styles.iconCenter]}>
+          <View style={hasText ? styles.iconRight : styles.iconCenter}>
             {icon}
           </View>
         )}
@@ -46,6 +55,8 @@ export default function CustomButton({
     </TouchableOpacity>
   );
 }
+
+
 const styles = StyleSheet.create({
   base: {
     paddingVertical: 12,

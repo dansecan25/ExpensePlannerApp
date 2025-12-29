@@ -6,6 +6,7 @@ import { getColors } from './utils/color-picker.js';
 
 import HomeScreen from './views/MainScreen.js';
 import WelcomeScreen from './views/WelcomeScreen.js'
+import DeductionSetupScreen from './views/DeductionsSetup.js'
 
 const Stack = createNativeStackNavigator();
 
@@ -45,6 +46,11 @@ export default function MainApp() {
           name="Welcome Screen"
         >
           {({ navigation }) => <WelcomeScreen navigation={navigation} />}
+        </Stack.Screen>
+        <Stack.Screen 
+          name="Taxes config"
+        >
+          {({ navigation }) => <DeductionSetupScreen navigation={navigation} />}
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>

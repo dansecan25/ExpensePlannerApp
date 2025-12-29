@@ -1,30 +1,35 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import CustomText from '../customText/customText';
 
 export default function CustomCheckbox({
   label,
   checked,
   onToggle,
+  containerStyles={}
 }) {
   return (
     <TouchableOpacity
-      style={customCheckboxStyles.container}
+      style={{...customCheckboxStyles.container,...containerStyles}}
       onPress={onToggle}
       activeOpacity={0.8}
     >
-      <View style={[styles.box, checked && customCheckboxStyles.checkedBox]}>
+      <View style={[customCheckboxStyles.box, checked && customCheckboxStyles.checkedBox]}>
         {checked && <View style={customCheckboxStyles.innerBox} />}
       </View>
 
-      {label && <Text style={customCheckboxStyles.label}>{label}</Text>}
+      {label && <CustomText 
+        type='body5'
+        style={customCheckboxStyles.label}
+        text={label}
+      />}
     </TouchableOpacity>
   );
 }
 const customCheckboxStyles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 8,
+    width:"100%"
   },
   box: {
     width: 22,
