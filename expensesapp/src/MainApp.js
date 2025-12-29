@@ -1,22 +1,40 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import {initDatabase} from './utils/database_connector.js'
+
+import { getSalaryRow, initDatabase } from './utils/database_connector.js';
 import { getColors } from './utils/color-picker.js';
 
 import HomeScreen from './views/MainScreen.js';
-import WelcomeScreen from './views/WelcomeScreen.js'
-import DeductionSetupScreen from './views/DeductionsSetup.js'
+import WelcomeScreen from './views/WelcomeScreen.js';
+import DeductionSetupScreen from './views/DeductionsSetup.js';
 
 const Stack = createNativeStackNavigator();
 
 export default function MainApp() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [salary, setSalary] = useState(null);
 
   useEffect(() => {
-    initDatabase().catch(console.error);
+    const load = async () => {
+      try {
+        await initDatabase();
+        const result = await getSalaryRow(); // returns row or null
+        setSalary(result);
+        console.log(result)
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  const view=2;
+  if (isLoading) {
+    return null; // or splash screen
+  }
 
   return (
     <NavigationContainer>
@@ -28,29 +46,26 @@ export default function MainApp() {
           },
         }}
       >
-        <Stack.Screen 
-          name="Home"
-        >
-          {({ navigation }) => { 
-            //check, if salary is not null, show home screen, if its null, show welcome screen
+        <Stack.Screen name="Home">
+          {({ navigation }) => {
             
-            if(view===1){
-              return (<HomeScreen navigation={navigation} />);
-            }else{
-              return (<WelcomeScreen navigation={navigation}/>)
+            if (salary) {
+              return <HomeScreen navigation={navigation} />;
             }
-            
-            }}
+            return <WelcomeScreen navigation={navigation} />;
+          }}
         </Stack.Screen>
-        <Stack.Screen 
-          name="Welcome Screen"
-        >
-          {({ navigation }) => <WelcomeScreen navigation={navigation} />}
+
+        <Stack.Screen name="Welcome Screen">
+          {({ navigation }) => (
+            <WelcomeScreen navigation={navigation} />
+          )}
         </Stack.Screen>
-        <Stack.Screen 
-          name="Taxes config"
-        >
-          {({ navigation }) => <DeductionSetupScreen navigation={navigation} />}
+
+        <Stack.Screen name="Taxes config">
+          {({ navigation }) => (
+            <DeductionSetupScreen navigation={navigation} />
+          )}
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>

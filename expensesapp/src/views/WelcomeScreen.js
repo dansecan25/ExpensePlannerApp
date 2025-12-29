@@ -7,6 +7,7 @@ import {dropdownStyles} from "../components/customDropdown/dropdownStylesCustom.
 import CustomButton from "../components/customButton/customButton.js"
 import { StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
+import { addSalary } from "../utils/database_connector.js";
 
 const WelcomeScreen = ({ navigation }) => {
   const [typedValue, setTypedValue] = useState("");
@@ -151,14 +152,19 @@ const WelcomeScreen = ({ navigation }) => {
                 <View style={{marginTop:40}}>
                     <CustomButton
                         text="Set options"
-                        onPress={()=>{
-                            console.log("Testing values to be stored on db:")
-                            console.log(payDate)
-                            console.log(typedValue)
-                            console.log(currency)
-                            navigation.navigate("Taxes config")
+                        onPress={async ()=>{
+                            await addSalary({
+                                amount: parseFloat(typedValue),
+                                currency:currency,
+                                fixed: fixedSalary,
+                                deposits_date: payDate,
+                                fixed_day: parseInt(payDay),
+                            });
+                            navigation.navigate("Taxes config");
                         }}
-                        disabled={typedValue.length<=0 || currency.length<=0 || payDate===""}
+                        disabled={typedValue.length<=0 || currency.length<=0 || payDate==="" || 
+                            (payDate==="Fixed date"? payDay==="" : false)
+                        }
                     />
                 </View>
 
