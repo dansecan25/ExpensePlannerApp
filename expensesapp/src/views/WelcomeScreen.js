@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useContext, useState } from "react";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomTextInput from '../components/customTextInput/customTextInput';
 import CustomText from '../components/customText/customText';
@@ -8,8 +8,16 @@ import CustomButton from "../components/customButton/customButton.js"
 import { StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
 import { addSalary } from "../utils/database_connector.js";
+import {Context} from "../utils/store.js"
 
 const WelcomeScreen = ({ navigation }) => {
+    const {
+        salaryStore:{
+            setSalaryModel,
+        }
+    }=useContext(Context);
+
+
   const [typedValue, setTypedValue] = useState("");
   const [fixedSalary, setfixedSalary] = useState(true);
   const [payDate, setPayDate]=useState("");

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useContext, useState } from "react";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomTextInput from '../components/customTextInput/customTextInput';
 import CustomText from '../components/customText/customText';
@@ -9,14 +9,10 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
 import { insertOtherTaxes, insertSalaryDeductions } from "../utils/database_connector.js";
 import { CommonActions } from "@react-navigation/native";
+import { Context } from "../utils/store.js";
 
 const DeductionSetupScreen = ({ navigation }) => {
-  const [typedValue, setTypedValue] = useState("");
-  const [fixedSalary, setfixedSalary] = useState(true);
-  const [payDate, setPayDate]=useState("");
-  const [currency, setCurrency]=useState("");
-  const [payDay, setPayDay] = useState(1);
-
+  const {pullFromDB}=useContext(Context);
   const [salaryRanges, setSalaryRanges] = useState([
     { range: "918000-1347000", percentage: "10" },
     { range: "1347000-2364000", percentage: "15" },
@@ -190,9 +186,7 @@ const DeductionSetupScreen = ({ navigation }) => {
                 onPress={async () => {
                     const parsedSalaryRanges = parseSalaryRanges(salaryRanges);
                     const parsedOtherTaxes = parseOtherTaxes(otherTaxes);
-
-                    console.log("Saved salary ranges:", parsedSalaryRanges);
-                    console.log("Saved other taxes:", parsedOtherTaxes);
+                    
                     try {
                         
 
@@ -200,12 +194,16 @@ const DeductionSetupScreen = ({ navigation }) => {
                         await insertOtherTaxes(parsedOtherTaxes);
 
                         
+                        await pullFromDB();
+
                         navigation.dispatch(
-                            CommonActions.reset({
+                        CommonActions.reset({
                             index: 0,
                             routes: [{ name: "Home" }],
-                            })
+                        })
                         );
+
+
                         } catch (err) {
                             console.error("Failed to save deductions", err);
                         }

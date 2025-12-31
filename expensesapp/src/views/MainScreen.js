@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { View, Text, Button, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import getColors from '../utils/color-picker';
@@ -6,8 +6,15 @@ import CustomText from '../components/customText/customText';
 import CustomButton from '../components/customButton/customButton';
 import { resetDatabase } from '../utils/database_connector';
 import { CommonActions } from '@react-navigation/native';
+import { Context } from '../utils/store';
 
 export default function MainScreen({ navigation }) {
+    const {
+        salaryStore:{
+            amount,
+            clear,
+        }
+    }=useContext(Context);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -18,12 +25,13 @@ export default function MainScreen({ navigation }) {
             />
             <CustomText
                 type='header3'
-                text={`Your salary is: `}
+                text={`Your salary is: ${amount} `}
             />
             <CustomButton
                 text="Restar databases"
                 onPress={async ()=>{
                     await resetDatabase();
+                    clear(),
                     navigation.dispatch(
                         CommonActions.reset({
                         index: 0,

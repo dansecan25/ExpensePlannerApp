@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -8,29 +8,34 @@ import { getColors } from './utils/color-picker.js';
 import HomeScreen from './views/MainScreen.js';
 import WelcomeScreen from './views/WelcomeScreen.js';
 import DeductionSetupScreen from './views/DeductionsSetup.js';
+import { Context } from './utils/store.js';
+import { observer } from 'mobx-react-lite';
 
 const Stack = createNativeStackNavigator();
 
-export default function MainApp() {
+const MainApp = observer(() => {
+
+  const {
+    pullFromDB,
+    salaryStore
+  } = useContext(Context);
+
+  const salary = salaryStore.amount;
+
+
+
   const [isLoading, setIsLoading] = useState(true);
-  const [salary, setSalary] = useState(null);
+  //const [salary, setSalary] = useState(null);
 
   useEffect(() => {
     const load = async () => {
-      try {
-        await initDatabase();
-        const result = await getSalaryRow(); // returns row or null
-        setSalary(result);
-        console.log(result)
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsLoading(false);
-      }
+      await initDatabase();
+      await pullFromDB();
+      setIsLoading(false);
     };
-
     load();
   }, []);
+
 
   if (isLoading) {
     return null; // or splash screen
@@ -47,14 +52,14 @@ export default function MainApp() {
         }}
       >
         <Stack.Screen name="Home">
-          {({ navigation }) => {
-            
-            if (salary) {
-              return <HomeScreen navigation={navigation} />;
-            }
-            return <WelcomeScreen navigation={navigation} />;
-          }}
+          {({ navigation }) =>
+            salary !== null
+              ? <HomeScreen navigation={navigation} />
+              : <WelcomeScreen navigation={navigation} />
+          }
         </Stack.Screen>
+
+
 
         <Stack.Screen name="Welcome Screen">
           {({ navigation }) => (
@@ -70,4 +75,6 @@ export default function MainApp() {
       </Stack.Navigator>
     </NavigationContainer>
   );
-}
+})
+
+export default MainApp;
