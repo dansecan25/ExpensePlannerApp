@@ -30,7 +30,7 @@ export default function MainScreen({ navigation }) {
             />
 
             <CustomButton
-                text="Restar databases"
+                text="Restart databases"
                 onPress={async ()=>{
                     await resetDatabase();
                     clear(),
