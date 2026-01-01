@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import getColors from '../utils/color-picker';
 import CustomText from '../components/customText/customText';
 import CustomButton from '../components/customButton/customButton';
+import ScrollableTile from "../components/scrollableTile/scrollableTile.js"
 import { resetDatabase } from '../utils/database_connector';
 import { CommonActions } from '@react-navigation/native';
 import { Context } from '../utils/store';
@@ -14,8 +15,19 @@ export default function MainScreen({ navigation }) {
             amount,
             currency,
             clear,
+        },
+        themeStore:{
+            systemIsDark
         }
     }=useContext(Context);
+    console.log("Theme state: ",systemIsDark)
+
+    const spentToday = [
+        "Coffee - ₡1,500",
+        "Lunch - ₡4,200",
+        "Bus - ₡500",
+        "Snack - ₡900",
+        ];
 
   return (
     <View style={styles.container}>
@@ -28,6 +40,13 @@ export default function MainScreen({ navigation }) {
                 type='header3'
                 text={`Your salary is: ${amount} ${currency} `}
             />
+            <ScrollableTile
+                title="Money spent today"
+                data={spentToday}
+            />
+
+
+            
 
             <CustomButton
                 text="Restart databases"

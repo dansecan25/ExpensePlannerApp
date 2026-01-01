@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
+import getColors from '../../utils/color-picker';
 
 const textStyle=(type)=>{
 
@@ -85,7 +86,7 @@ const CustomText=({
 const styles = StyleSheet.create({
   text: {
     width: '100%',
-    color:"white",
+    color:getColors("textprimary"),
   },
 });
 

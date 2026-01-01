@@ -42,7 +42,65 @@ export const initDatabase = async () => {
         percentage REAL
       );
       `
-    }
+    },
+    {
+      query:`
+      CREATE TABLE IF NOT EXISTS yearly_expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL UNIQUE
+      );
+      `
+    },
+    {
+      query: `
+      CREATE TABLE IF NOT EXISTS months_expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        -- backend sets this automatically (ISO date recommended)
+        date TEXT NOT NULL,
+
+        -- expense name (can repeat)
+        name TEXT NOT NULL,
+
+        -- optional description
+        description TEXT,
+
+        -- real and inflated values
+        value REAL NOT NULL,
+        inflated_value REAL,
+
+        -- optional account
+        account_id INTEGER,
+
+        FOREIGN KEY (account_id) REFERENCES accounts(id)
+      );
+      `
+    },
+
+    {
+      query: `
+      CREATE TABLE IF NOT EXISTS expense_tags (
+        expense_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+
+        PRIMARY KEY (expense_id, tag_id),
+
+        FOREIGN KEY (expense_id) REFERENCES months_expenses(id),
+        FOREIGN KEY (tag_id) REFERENCES tags(id)
+      );
+      `
+    },
+
+    {
+      query:`
+      CREATE TABLE IF NOT EXISTS accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL
+      );
+
+      `
+    },
   ]);
 };
 
@@ -209,6 +267,213 @@ export const insertOtherTaxes = async (taxes) => {
   }
 };
 
+export const insertExpense = async (
+  name,
+  value,
+  inflatedValue,
+  tags = [],
+  accountId = null,
+  date,
+  description = null
+) => {
+  const db = getDB();
+
+  // 1️⃣ Insert expense
+  const result = await db.executeAsync(
+    `
+    INSERT INTO months_expenses (
+      date,
+      name,
+      description,
+      value,
+      inflated_value,
+      account_id
+    ) VALUES (?, ?, ?, ?, ?, ?);
+    `,
+    [
+      date,
+      name,
+      description,
+      value,
+      inflatedValue,
+      accountId,
+    ]
+  );
+
+  const expenseId = result.insertId;
+
+  // 2️⃣ Insert tags (if any)
+  for (const tagId of tags) {
+    await db.executeAsync(
+      `
+      INSERT INTO expense_tags (expense_id, tag_id)
+      VALUES (?, ?);
+      `,
+      [expenseId, tagId]
+    );
+  }
+
+  return expenseId;
+};
 
 
+export const deleteExpense = async (id) => {
+  const db = getDB();
+
+  await db.executeBatchAsync([
+    {
+      // remove relationships only
+      query: `
+        DELETE FROM expense_tags
+        WHERE expense_id = ?;
+      `,
+      args: [id],
+    },
+    {
+      // remove the expense itself
+      query: `
+        DELETE FROM months_expenses
+        WHERE id = ?;
+      `,
+      args: [id],
+    },
+  ]);
+};
+
+
+//params that are received with value, are the query search params
+export const getExpensesBy = async ({
+  name = null,
+  minValue = null,
+  maxValue = null,
+  tagId = null,
+  accountId = null,
+  dateFrom = null,
+  dateTo = null,
+}) => {
+  const db = getDB();
+
+  let query = `
+    SELECT DISTINCT e.*
+    FROM months_expenses e
+    LEFT JOIN expense_tags et ON e.id = et.expense_id
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+
+  if (name) {
+    query += ` AND e.name LIKE ?`;
+    params.push(`%${name}%`);
+  }
+
+  if (minValue !== null) {
+    query += ` AND e.value >= ?`;
+    params.push(minValue);
+  }
+
+  if (maxValue !== null) {
+    query += ` AND e.value <= ?`;
+    params.push(maxValue);
+  }
+
+  if (accountId !== null) {
+    query += ` AND e.account_id = ?`;
+    params.push(accountId);
+  }
+
+  if (tagId !== null) {
+    query += ` AND et.tag_id = ?`;
+    params.push(tagId);
+  }
+
+  if (dateFrom) {
+    query += ` AND e.date >= ?`;
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    query += ` AND e.date <= ?`;
+    params.push(dateTo);
+  }
+
+  const result = await db.execute(query, params);
+
+  const expenses = [];
+  for (let i = 0; i < result.rows.length; i++) {
+    expenses.push(result.rows.item(i));
+  }
+
+  return expenses;
+};
+
+//get all accounts created on db
+export const getAccountsCreated = async () => {
+  const db = getDB();
+
+  const result = await db.execute(
+    `SELECT * FROM accounts ORDER BY name ASC;`
+  );
+
+  const accounts = [];
+  for (let i = 0; i < result.rows.length; i++) {
+    accounts.push(result.rows.item(i));
+  }
+
+  return accounts;
+};
+
+
+export const getExpensesForMonth = async (year, month) => {
+  const db = getDB();
+
+  const start = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endMonth = month === 12 ? 1 : month + 1;
+  const endYear = month === 12 ? year + 1 : year;
+  const end = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+
+  const result = await db.execute(
+    `
+    SELECT *
+    FROM months_expenses
+    WHERE date >= ? AND date < ?
+    ORDER BY date ASC;
+    `,
+    [start, end]
+  );
+
+  const expenses = [];
+  for (let i = 0; i < result.rows.length; i++) {
+    expenses.push(result.rows.item(i));
+  }
+
+  return expenses;
+};
+
+export const createTag = async (name) => {
+  const db = getDB();
+
+  await db.executeAsync(
+    `
+    INSERT OR IGNORE INTO tags (name)
+    VALUES (?);
+    `,
+    [name.trim()]
+  );
+};
+
+
+export const getAllTags = async () => {
+  const db = getDB();
+
+  const result = await db.execute(
+    `
+    SELECT id, name
+    FROM tags
+    ORDER BY name ASC;
+    `
+  );
+
+  return result.rows?._array ?? [];
+};
 
