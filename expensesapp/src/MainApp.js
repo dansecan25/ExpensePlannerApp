@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { getSalaryRow, initDatabase } from './utils/database_connector.js';
 import { getColors } from './utils/color-picker.js';
 
-import HomeScreen from './views/MainScreen.js';
+import MenuScreens from './views/MenuScreens.js';
 import WelcomeScreen from './views/WelcomeScreen.js';
 import DeductionSetupScreen from './views/DeductionsSetup.js';
 import { Context } from './utils/store.js';
@@ -54,13 +54,10 @@ const MainApp = observer(() => {
         <Stack.Screen name="Home">
           {({ navigation }) =>
             salary !== null
-              ? <HomeScreen navigation={navigation} />
+              ? <MenuScreens navigation={navigation} />
               : <WelcomeScreen navigation={navigation} />
           }
         </Stack.Screen>
-
-
-
         <Stack.Screen name="Welcome Screen">
           {({ navigation }) => (
             <WelcomeScreen navigation={navigation} />

@@ -12,12 +12,13 @@ export default function MainScreen({ navigation }) {
     const {
         salaryStore:{
             amount,
+            currency,
             clear,
         }
     }=useContext(Context);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
         <View>
             <CustomText
                 type='header1'
@@ -25,8 +26,9 @@ export default function MainScreen({ navigation }) {
             />
             <CustomText
                 type='header3'
-                text={`Your salary is: ${amount} `}
+                text={`Your salary is: ${amount} ${currency} `}
             />
+
             <CustomButton
                 text="Restar databases"
                 onPress={async ()=>{
@@ -42,13 +44,14 @@ export default function MainScreen({ navigation }) {
             />
             
         </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
     container:{
         flex:1,
+        marginTop:-10,
         marginHorizontal:15,
     },
     headerText:{
