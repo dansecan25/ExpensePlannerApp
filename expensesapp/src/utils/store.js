@@ -15,7 +15,7 @@ const Storage = types.model({
         const result = yield getSalaryRow();
         if(result!==null){
             console.log("Got results  ",result)
-            self.salaryStore.setSalaryModel(result.amount,result.currency,false,result.deposits_date,result.fixed_day);
+            self.salaryStore.setSalaryModel(result.amount,result.balance,result.last_deposit,result.currency,false,result.deposits_date,result.fixed_day);
         }
 
     }),

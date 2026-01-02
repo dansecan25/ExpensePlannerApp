@@ -85,7 +85,6 @@ const CustomText=({
 
 const styles = StyleSheet.create({
   text: {
-    width: '100%',
     color:getColors("textprimary"),
   },
 });

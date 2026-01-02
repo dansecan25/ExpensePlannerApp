@@ -7,14 +7,10 @@ export default function ScrollableTile({
   title,
   data = [],
   size = 180, // square size (width & height)
+  style={}
 }) {
   return (
-    <View style={[styles.tile, { width: "100%", height: size }]}>
-      <CustomText
-        type="header3"
-        text={title}
-        style={styles.title}
-      />
+    <View style={[styles.tile, { width: "100%", height: size },style]}>
 
       <ScrollView
         showsVerticalScrollIndicator={false}

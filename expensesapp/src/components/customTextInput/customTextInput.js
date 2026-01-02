@@ -14,7 +14,7 @@ const CustomTextInput=({
       placeholder={placeholder}
       placeholderTextColor={"#a8a8a8ff"}
       onChangeText={(text) => setValue(text)}
-      style={[styles.input, style]}
+      style={{...styles.input, ...style}}
     />
   );
 }

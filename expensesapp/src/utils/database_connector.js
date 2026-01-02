@@ -4,7 +4,7 @@ let dbInstance = null;
 
 export const getDB = () => {
   if (!globalThis.__financeDB) {
-    globalThis.__financeDB = open({ name: 'finance3.sqlite' });
+    globalThis.__financeDB = open({ name: 'finance123.sqlite' });
   }
   return globalThis.__financeDB;
 };
@@ -17,6 +17,8 @@ export const initDatabase = async () => {
         CREATE TABLE IF NOT EXISTS salary (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           amount REAL,
+          balance REAL,
+          last_deposit TEXT,
           currency TEXT,
           fixed BOOL,
           deposits_date TEXT,
@@ -189,34 +191,36 @@ export const getSalaryRow = async () => {
 export const addSalary = async ({
   amount,
   currency,
+  balance,
   fixed,
   deposits_date,
   fixed_day,
 }) => {
   try {
-    console.log("Getting db")
     const db = getDB();
-    console.log("DB WENT THROUGH, SALARY IS: ",amount)
-    console.log(currency)
-    console.log(fixed)
-    console.log(deposits_date)
-    console.log(fixed_day)
+
+    const todayISO = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
     await db.executeAsync(
       `
       INSERT INTO salary (
         amount,
+        balance,
+        last_deposit,
         currency,
         fixed,
         deposits_date,
         fixed_day
-      ) VALUES (?, ?, ?, ?, ?);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?);
       `,
       [
         amount,
+        balance,
+        todayISO,
         currency,
         fixed ? 1 : 0,
         deposits_date,
-        fixed_day,
+        fixed_day ?? null,
       ]
     );
   } catch (err) {
@@ -224,6 +228,7 @@ export const addSalary = async ({
     throw err;
   }
 };
+
 
 export const insertSalaryDeductions = async (ranges) => {
   const db = getDB();
@@ -272,49 +277,64 @@ export const insertExpense = async (
   value,
   inflatedValue,
   tags = [],
-  accountId = null,
+  accountId,
   date,
-  description = null
+  description
 ) => {
   const db = getDB();
 
-  // 1️⃣ Insert expense
-  const result = await db.executeAsync(
-    `
-    INSERT INTO months_expenses (
-      date,
-      name,
-      description,
-      value,
-      inflated_value,
-      account_id
-    ) VALUES (?, ?, ?, ?, ?, ?);
-    `,
-    [
-      date,
-      name,
-      description,
-      value,
-      inflatedValue,
-      accountId,
-    ]
-  );
+  const columns = ["date", "name", "value"];
+  const placeholders = ["?", "?", "?"];
+  const params = [date, name, value];
 
-  const expenseId = result.insertId;
-
-  // 2️⃣ Insert tags (if any)
-  for (const tagId of tags) {
-    await db.executeAsync(
-      `
-      INSERT INTO expense_tags (expense_id, tag_id)
-      VALUES (?, ?);
-      `,
-      [expenseId, tagId]
-    );
+  if (description !== undefined && description !== "") {
+    columns.push("description");
+    placeholders.push("?");
+    params.push(description);
   }
 
-  return expenseId;
+  if (inflatedValue !== undefined && inflatedValue !== null) {
+    columns.push("inflated_value");
+    placeholders.push("?");
+    params.push(inflatedValue);
+  }
+
+  if (accountId !== undefined && accountId !== null) {
+    columns.push("account_id");
+    placeholders.push("?");
+    params.push(accountId);
+  }
+
+  const query = `
+    INSERT INTO months_expenses (
+      ${columns.join(", ")}
+    ) VALUES (
+      ${placeholders.join(", ")}
+    );
+  `;
+
+  try {
+    const result = await db.executeAsync(query, params);
+    const expenseId = result.insertId;
+
+    // insert tag relations
+    for (const tagId of tags) {
+      await db.executeAsync(
+        `
+        INSERT INTO expense_tags (expense_id, tag_id)
+        VALUES (?, ?);
+        `,
+        [expenseId, tagId]
+      );
+    }
+
+    return expenseId;
+  } catch (e) {
+    console.error("Error when storing on db:", e);
+    return -1;
+  }
 };
+
 
 
 export const deleteExpense = async (id) => {
@@ -407,6 +427,35 @@ export const getExpensesBy = async ({
   return expenses;
 };
 
+export const getExpensesForToday = async () => {
+  try{
+    const db = getDB();
+
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+    const result = await db.execute(
+      `
+      SELECT id, name, value, inflated_value
+      FROM months_expenses
+      WHERE date LIKE ?
+      ORDER BY date DESC;
+      `,
+      [`${today}%`]
+    );
+
+    const expenses = [];
+    for (let i = 0; i < result.rows.length; i++) {
+      expenses.push(result.rows.item(i));
+    }
+    console.log("Day expenses are: ",expenses)
+    return expenses;
+  }catch(e){
+    console.error("Error while getting day expenses: ",e);
+    return [];
+  }
+};
+
+
 //get all accounts created on db
 export const getAccountsCreated = async () => {
   const db = getDB();
@@ -423,7 +472,6 @@ export const getAccountsCreated = async () => {
   return accounts;
 };
 
-
 export const getExpensesForMonth = async (year, month) => {
   const db = getDB();
 
@@ -431,10 +479,10 @@ export const getExpensesForMonth = async (year, month) => {
   const endMonth = month === 12 ? 1 : month + 1;
   const endYear = month === 12 ? year + 1 : year;
   const end = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
-
+  //console.log("Calling get expenses");
   const result = await db.execute(
     `
-    SELECT *
+    SELECT id, name, value, inflated_value, date, account_id
     FROM months_expenses
     WHERE date >= ? AND date < ?
     ORDER BY date ASC;
@@ -446,9 +494,9 @@ export const getExpensesForMonth = async (year, month) => {
   for (let i = 0; i < result.rows.length; i++) {
     expenses.push(result.rows.item(i));
   }
-
   return expenses;
 };
+
 
 export const createTag = async (name) => {
   const db = getDB();

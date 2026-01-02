@@ -8,6 +8,8 @@ import { getColors } from './utils/color-picker.js';
 import MenuScreens from './views/MenuScreens.js';
 import WelcomeScreen from './views/WelcomeScreen.js';
 import DeductionSetupScreen from './views/DeductionsSetup.js';
+import TodayExpenseAddScreen from './views/TodayExpenseAdd.js';
+import GeneralExpenseAddScreen from './views/GeneralExpenseAdd.js';
 import { Context } from './utils/store.js';
 import { observer } from 'mobx-react-lite';
 
@@ -67,6 +69,16 @@ const MainApp = observer(() => {
         <Stack.Screen name="Taxes config">
           {({ navigation }) => (
             <DeductionSetupScreen navigation={navigation} />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="Add today expense">
+          {({ navigation }) => (
+            <TodayExpenseAddScreen navigation={navigation} />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="Add general expense">
+          {({ navigation }) => (
+            <GeneralExpenseAddScreen navigation={navigation} />
           )}
         </Stack.Screen>
       </Stack.Navigator>

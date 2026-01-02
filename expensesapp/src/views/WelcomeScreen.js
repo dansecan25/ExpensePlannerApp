@@ -19,6 +19,7 @@ const WelcomeScreen = ({ navigation }) => {
 
 
   const [typedValue, setTypedValue] = useState("");
+  const [startingBalance, setStartingBalance] = useState("");
   const [fixedSalary, setfixedSalary] = useState(true);
   const [payDate, setPayDate]=useState("");
   const [currency, setCurrency]=useState("");
@@ -46,6 +47,17 @@ const WelcomeScreen = ({ navigation }) => {
             type="header3"
             style={{marginBottom:40}}
             text="Please configure your experience before beginning "
+        />
+        <CustomText
+            type="body3"
+            text="Please enter a starting balance"
+            style={welcomeScreenStyles.text}
+        />
+        <CustomTextInput
+            value={startingBalance}
+            setValue={setStartingBalance}
+            placeholder="Balance"
+            keyboardType="numeric"
         />
         <CustomText
             type="body3"
@@ -163,7 +175,8 @@ const WelcomeScreen = ({ navigation }) => {
                         onPress={async ()=>{
                             await addSalary({
                                 amount: parseFloat(typedValue),
-                                currency:currency,
+                                balance: parseFloat(startingBalance),
+                                currency: currency,
                                 fixed: fixedSalary,
                                 deposits_date: payDate,
                                 fixed_day: parseInt(payDay),
@@ -171,7 +184,7 @@ const WelcomeScreen = ({ navigation }) => {
                             navigation.navigate("Taxes config");
                         }}
                         disabled={typedValue.length<=0 || currency.length<=0 || payDate==="" || 
-                            (payDate==="Fixed date"? payDay==="" : false)
+                            (payDate==="Fixed date"? payDay==="" : false) || startingBalance.length<=0
                         }
                     />
                 </View>
@@ -198,6 +211,7 @@ const WelcomeScreen = ({ navigation }) => {
                             console.log(typedValue)
                             console.log(currency)
                         }}
+                        disabled={startingBalance.length<=0}
                         
                     />
                 </View>
