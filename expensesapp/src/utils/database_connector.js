@@ -58,7 +58,21 @@ export const initDatabase = async () => {
           fixed BOOL DEFAULT 1,
           deposits_date TEXT,
           fixed_day INTEGER,
+          savings_mode_enabled INTEGER NOT NULL DEFAULT 0,
+          savings_mode_amount REAL NOT NULL DEFAULT 0,
           setup_complete INTEGER NOT NULL DEFAULT 1
+        );
+      `,
+    },
+    {
+      query: `
+        CREATE TABLE IF NOT EXISTS salary_schedule_changes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          effective_date TEXT NOT NULL UNIQUE,
+          amount REAL,
+          income_type TEXT NOT NULL,
+          deposits_date TEXT,
+          fixed_day INTEGER
         );
       `,
     },
@@ -95,7 +109,8 @@ export const initDatabase = async () => {
       query: `
         CREATE TABLE IF NOT EXISTS tags (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL UNIQUE
+          name TEXT NOT NULL UNIQUE,
+          color TEXT NOT NULL DEFAULT '#4261a0'
         );
       `,
     },
@@ -161,8 +176,11 @@ export const initDatabase = async () => {
   await ensureColumn(db, "salary", "fixed", "BOOL DEFAULT 1");
   await ensureColumn(db, "salary", "deposits_date", "TEXT");
   await ensureColumn(db, "salary", "fixed_day", "INTEGER");
+  await ensureColumn(db, "salary", "savings_mode_enabled", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "salary", "savings_mode_amount", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(db, "salary", "setup_complete", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(db, "accounts", "opening_balance", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(db, "tags", "color", "TEXT NOT NULL DEFAULT '#4261a0'");
   await ensureColumn(db, "months_expenses", "kind", "TEXT NOT NULL DEFAULT 'expense'");
   await ensureColumn(db, "months_expenses", "is_savings", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "created_at", "TEXT");
@@ -180,6 +198,7 @@ export const resetDatabase = async () => {
     await db.executeBatchAsync([
       { query: "DROP TABLE IF EXISTS expense_tags;" },
       { query: "DROP TABLE IF EXISTS subscriptions;" },
+      { query: "DROP TABLE IF EXISTS salary_schedule_changes;" },
       { query: "DROP TABLE IF EXISTS months_expenses;" },
       { query: "DROP TABLE IF EXISTS tags;" },
       { query: "DROP TABLE IF EXISTS accounts;" },
@@ -249,6 +268,82 @@ export const updateSalaryAmount = async amount => {
   if (result.rowsAffected === 0) {
     throw new Error("Set up an income profile before changing the salary.");
   }
+};
+
+export const updateSalarySavingsMode = async (enabled, amount) => {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount < 0) {
+    throw new Error("Enter a savings amount of zero or more.");
+  }
+  const result = await getDB().executeAsync(
+    `UPDATE salary
+     SET savings_mode_enabled = ?, savings_mode_amount = ?
+     WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);`,
+    [enabled ? 1 : 0, numericAmount],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("Set up an income profile before enabling Savings mode.");
+  }
+};
+
+export const getSalaryScheduleChanges = async () => {
+  const result = await getDB().execute(
+    "SELECT * FROM salary_schedule_changes ORDER BY effective_date ASC;",
+  );
+  return readRows(result);
+};
+
+export const saveSalaryScheduleChange = async ({
+  effectiveDate,
+  amount,
+  incomeType,
+  depositsDate,
+  fixedDay,
+}) => {
+  if (!isValidLocalDate(effectiveDate)) {
+    throw new Error("Choose a valid salary change effective date.");
+  }
+  if (!["fixed", "variable", "unemployed"].includes(incomeType)) {
+    throw new Error("Choose fixed salary, variable income, or unemployed.");
+  }
+  const numericAmount =
+    amount === null || amount === undefined || amount === ""
+      ? null
+      : Number(amount);
+  if (
+    incomeType === "fixed" &&
+    (!Number.isFinite(numericAmount) ||
+      numericAmount <= 0 ||
+      !["Quincenal", "Last day of month", "Pre last day of month", "Fixed date"].includes(
+        depositsDate,
+      ) ||
+      (depositsDate === "Fixed date" &&
+        (!Number.isInteger(Number(fixedDay)) ||
+          Number(fixedDay) < 1 ||
+          Number(fixedDay) > 31)))
+  ) {
+    throw new Error("Enter a valid salary amount and deposit schedule.");
+  }
+  await getDB().executeBatchAsync([
+    {
+      query: "DELETE FROM salary_schedule_changes WHERE effective_date = ?;",
+      params: [effectiveDate],
+    },
+    {
+      query: `INSERT INTO salary_schedule_changes
+        (effective_date, amount, income_type, deposits_date, fixed_day)
+        VALUES (?, ?, ?, ?, ?);`,
+      params: [
+        effectiveDate,
+        incomeType === "fixed" ? numericAmount : null,
+        incomeType,
+        incomeType === "fixed" ? depositsDate : null,
+        incomeType === "fixed" && depositsDate === "Fixed date"
+          ? Number(fixedDay)
+          : null,
+      ],
+    },
+  ]);
 };
 
 export const insertSalaryDeductions = async ranges => {
@@ -366,20 +461,40 @@ export const getAccountsCreated = async () => {
   return readRows(result);
 };
 
-export const createTag = async name => {
+export const createTag = async (name, color = "#4261a0") => {
   const normalizedName = name.trim();
   if (!normalizedName) {
-    throw new Error("Group name is required.");
+    throw new Error("Tag name is required.");
   }
-  await getDB().executeAsync(
-    "INSERT OR IGNORE INTO tags (name) VALUES (?);",
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+    throw new Error("Tag color must be a six-digit hexadecimal color.");
+  }
+  const db = getDB();
+  const existingResult = await db.execute(
+    "SELECT id, name, color FROM tags WHERE name = ? COLLATE NOCASE;",
     [normalizedName],
   );
+  if (existingResult.rows.length) {
+    return existingResult.rows.item(0);
+  }
+  await db.executeAsync(
+    "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?);",
+    [normalizedName, color.toUpperCase()],
+  );
+  const result = await db.execute(
+    "SELECT id, name, color FROM tags WHERE name = ? COLLATE NOCASE;",
+    [normalizedName],
+  );
+  const tag = result.rows.length ? result.rows.item(0) : null;
+  if (!tag) {
+    throw new Error("The tag could not be created.");
+  }
+  return tag;
 };
 
 export const getAllTags = async () => {
   const result = await getDB().execute(
-    "SELECT id, name FROM tags ORDER BY name COLLATE NOCASE ASC;",
+    "SELECT id, name, color FROM tags ORDER BY name COLLATE NOCASE ASC;",
   );
   return readRows(result);
 };
@@ -589,6 +704,7 @@ export const getCashflowData = async () => {
     accounts,
     tags,
     subscriptions,
+    salaryChanges,
     salaryDeductions,
     otherTaxes,
   ] = await Promise.all([
@@ -597,6 +713,7 @@ export const getCashflowData = async () => {
     getAccountsCreated(),
     getAllTags(),
     getSubscriptions(),
+    getSalaryScheduleChanges(),
     getDB().execute(
       "SELECT min_salary, max_salary, percentage FROM salary_deductions ORDER BY min_salary;",
     ),
@@ -608,6 +725,7 @@ export const getCashflowData = async () => {
     accounts,
     tags,
     subscriptions,
+    salaryChanges,
     salaryDeductions: readRows(salaryDeductions),
     otherTaxes: readRows(otherTaxes),
   };

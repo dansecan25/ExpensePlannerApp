@@ -13,7 +13,9 @@ import {
 import {
   getBalanceBeforeDate,
   getCashflowProjection,
+  getSalaryScheduleForDate,
 } from "../../utils/financeCalculations";
+import { getSubscriptionOccurrenceDates } from "../../utils/subscriptionSchedule";
 
 const formatMoney = (amount, currency) =>
   `${Number(amount || 0).toLocaleString(undefined, {
@@ -50,30 +52,65 @@ export default function HomeScreen({ navigation }) {
         getExpensesForToday(),
         getExpensesForMonth(year, month),
       ]);
-      const scheduledExpenses = projection.events
-        .filter(event => event.subscription)
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+      const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(
+        new Date(year, month, 0).getDate(),
+      ).padStart(2, "0")}`;
+      const scheduledExpenses = data.subscriptions
+        .filter(subscription => Number(subscription.active) === 1)
+        .flatMap(subscription =>
+          getSubscriptionOccurrenceDates(
+            subscription,
+            monthStart,
+            monthEnd,
+          ).map(date => ({
+            id: `subscription-${subscription.id}-${date}`,
+            date,
+            name: subscription.name,
+            value: Number(subscription.amount),
+            kind: "expense",
+            subscription: true,
+            isScheduled: true,
+          })),
+        )
+        .filter(scheduled =>
+          !monthRows.some(
+            transaction =>
+              transaction.kind === "expense" &&
+              transaction.date.slice(0, 10) === scheduled.date &&
+              transaction.name.trim().toLowerCase() ===
+                scheduled.name.trim().toLowerCase(),
+          ),
+        );
+      const scheduledSalary = projection.events
+        .filter(
+          event =>
+            event.source === "salary" &&
+            event.date >= monthStart &&
+            event.date <= monthEnd,
+        )
         .map(event => ({
-          id: `subscription-${event.name}-${event.date}`,
+          id: `salary-${event.date}`,
           date: event.date,
-          name: event.name,
+          name: "Salary",
           value: event.amount,
-          kind: "expense",
+          kind: "income",
           isScheduled: true,
         }));
       setTodayExpenses([
         ...todayRows,
         ...scheduledExpenses.filter(expense => expense.date === today),
       ]);
-      const monthKey = `${year}-${String(month).padStart(2, "0")}`;
       setMonthExpenses([
         ...monthRows,
-        ...scheduledExpenses.filter(expense =>
-          expense.date.startsWith(monthKey),
-        ),
+        ...scheduledExpenses,
+        ...scheduledSalary,
       ]);
       setAvailableBeforePayment(balanceBeforePayment);
       setCurrency(data.salary?.currency || "");
-      setHasFixedIncome(Boolean(data.salary?.fixed));
+      setHasFixedIncome(
+        getSalaryScheduleForDate(data, now)?.income_type === "fixed",
+      );
       setLoadError(false);
     } catch (error) {
       console.error("Failed to load home cash flow:", error);
@@ -107,11 +144,25 @@ export default function HomeScreen({ navigation }) {
       sum + Number(expense.inflated_value ?? expense.value ?? 0),
     0,
   );
-  const monthLabels = monthExpenseRows.map(expense => {
-    const date = expense.date.slice(0, 10);
-    const amount = expense.inflated_value ?? expense.value;
-    return `${date} · ${expense.name} · ${formatMoney(amount, currency)}`;
-  });
+  const monthLabels = [...monthExpenses]
+    .sort((left, right) => {
+      const dateOrder = left.date.localeCompare(right.date);
+      return dateOrder || left.name.localeCompare(right.name);
+    })
+    .map(expense => {
+      const date = expense.date.slice(0, 10);
+      const isIncome = expense.kind === "income";
+      const amount = isIncome
+        ? expense.value
+        : expense.inflated_value ?? expense.value;
+      const movementLabel = expense.subscription
+        ? `${expense.name} · Subscription`
+        : expense.name;
+      return `${date} · ${isIncome ? "+" : "-"}${movementLabel} · ${formatMoney(
+        amount,
+        currency,
+      )}`;
+    });
 
   return (
     <ScrollView

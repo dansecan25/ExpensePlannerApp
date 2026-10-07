@@ -14,8 +14,10 @@ balance. User data must persist between app launches in the local SQLite databas
 2. Ask how income works:
    - **Fixed salary:** collect the salary amount and pay schedule. The user can choose
      a quinquenal/every-15-days schedule, the last day of the month, a specific day
-     of the month, or the pre-last available day of the month. The pre-last available
-     day should account for weekends as the existing app does.
+     of the month, or the pre-last available day of the month. For pre-last
+     deposits, schedule Thursday when month-end is Friday, Saturday, or Sunday;
+     Wednesday when month-end is Thursday; the preceding Friday when month-end is
+     Monday; and the preceding day when month-end is Tuesday or Wednesday.
      Treat the entered amount as gross monthly salary; apply configured progressive
      income tax and other deductions, then split the estimated net pay across the two
      monthly deposits for an every-15-days schedule.
@@ -30,7 +32,11 @@ balance. User data must persist between app launches in the local SQLite databas
    configuration, resume at deduction configuration rather than creating another
    profile or skipping setup.
 
-The app's existing typeface should not be changed.
+The app's existing typeface should not be changed. Settings can schedule income
+status, salary amount, and deposit-date changes to take effect immediately or from
+a specified current/future date. Variable-income and unemployed periods do not
+generate automatic salary deposits; a later fixed-salary schedule resumes deposits
+from its effective date.
 
 ## Home
 
@@ -145,6 +151,11 @@ Treat six months and two years as calendar periods when checking the deduction g
 and warning horizon. The recurring schedule is prospective: subscription entries
 affect projections from their configured start date and do not automatically create
 historical ledger entries.
+
+Settings also provides an optional Savings mode for fixed salary projections. When
+enabled, subtract the configured monthly amount from net projected salary before
+applying the existing deposit schedule. This is a mental budgeting adjustment only:
+it must not create a transaction or change the actual recorded account balance.
 
 ## Persistence and implementation notes
 

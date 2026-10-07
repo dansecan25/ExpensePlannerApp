@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Dropdown } from "react-native-element-dropdown";
 
@@ -9,6 +16,7 @@ import CustomText from "../components/customText/customText";
 import CustomTextInput from "../components/customTextInput/customTextInput";
 import { dropdownStyles } from "../components/customDropdown/dropdownStylesCustom";
 import {
+  createTag,
   getAccountsCreated,
   getAllTags,
   getCashflowData,
@@ -29,6 +37,10 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
   const [tags, setTags] = useState([]);
   const [accountId, setAccountId] = useState(null);
   const [tagId, setTagId] = useState(null);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagColorOpen, setTagColorOpen] = useState(false);
+  const [tagColor, setTagColor] = useState("#4261a0");
   const [isInflated, setIsInflated] = useState(false);
   const [inflatedAmount, setInflatedAmount] = useState("");
   const [isSavings, setIsSavings] = useState(false);
@@ -53,12 +65,13 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
             tagRows.map(tag => ({
               label: tag.name,
               value: tag.id,
+              color: tag.color,
             })),
           );
         }
       } catch (error) {
         console.error("Failed to load transaction options:", error);
-        Alert.alert("Could not load accounts and groups", "Please try again.");
+        Alert.alert("Could not load accounts and tags", "Please try again.");
       }
     };
     loadOptions();
@@ -66,6 +79,72 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
       isMounted = false;
     };
   }, []);
+
+  const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase();
+  const matchingTags = tags.filter(tag =>
+    tag.label.toLocaleLowerCase().includes(normalizedTagQuery),
+  );
+  const exactTag = tags.find(
+    tag => tag.label.toLocaleLowerCase() === normalizedTagQuery,
+  );
+  const canCreateTag = normalizedTagQuery.length > 0 && !exactTag;
+  const validTagColor = /^#[0-9a-fA-F]{6}$/.test(tagColor);
+  const tagColors = [
+    "#4261A0",
+    "#2E7D5B",
+    "#D97706",
+    "#B54747",
+    "#7B61A8",
+    "#287A8C",
+    "#6B7280",
+  ];
+
+  const selectTag = tag => {
+    setTagId(tag.value);
+    setTagQuery(tag.label);
+    setTagColor(tag.color || "#4261a0");
+    setTagMenuOpen(false);
+    setTagColorOpen(false);
+  };
+
+  const handleTagSubmit = async () => {
+    const normalizedName = tagQuery.trim();
+    if (!normalizedName) {
+      return;
+    }
+    if (exactTag) {
+      selectTag(exactTag);
+      return;
+    }
+    if (!/^#[0-9a-fA-F]{6}$/.test(tagColor)) {
+      Alert.alert("Invalid tag color", "Enter a six-digit hexadecimal color.");
+      return;
+    }
+
+    try {
+      const createdTag = await createTag(normalizedName, tagColor);
+      const option = {
+        label: createdTag.name,
+        value: createdTag.id,
+        color: createdTag.color,
+      };
+      setTags(currentTags => {
+        const withoutDuplicate = currentTags.filter(
+          tag => tag.value !== option.value,
+        );
+        return [...withoutDuplicate, option].sort((left, right) =>
+          left.label.localeCompare(right.label),
+        );
+      });
+      selectTag(option);
+    } catch (error) {
+      console.error("Failed to create transaction tag:", error);
+      Alert.alert(
+        "Could not create tag",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    }
+  };
 
   const numericAmount = Number(amount);
   const numericInflatedAmount = Number(inflatedAmount);
@@ -254,7 +333,9 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
         <Field label="Account (optional)">
           <Dropdown
             data={accounts}
+            dropdownPosition="bottom"
             labelField="label"
+            keyboardAvoiding={false}
             onChange={item => setAccountId(item.value)}
             placeholder="Select account"
             placeholderStyle={dropdownStyles.placeholderText}
@@ -264,18 +345,105 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
             valueField="value"
           />
         </Field>
-        <Field label={isSavings ? "Savings purpose (optional)" : "Group (optional)"}>
-          <Dropdown
-            data={tags}
-            labelField="label"
-            onChange={item => setTagId(item.value)}
-            placeholder={isSavings ? "Choose a savings goal" : "Select group"}
-            placeholderStyle={dropdownStyles.placeholderText}
-            selectedTextStyle={dropdownStyles.selectedText}
-            style={dropdownStyles.input}
-            value={tagId}
-            valueField="value"
-          />
+        <Field label={isSavings ? "Savings tag (optional)" : "Tag (optional)"}>
+          <View style={styles.tagRow}>
+            <TextInput
+              autoCapitalize="sentences"
+              onChangeText={value => {
+                setTagQuery(value);
+                setTagId(null);
+                setTagMenuOpen(true);
+              }}
+              onFocus={() => setTagMenuOpen(true)}
+              onSubmitEditing={handleTagSubmit}
+              placeholder={isSavings ? "Search or create a savings tag" : "Search or create a tag"}
+              placeholderTextColor="#a8a8a8ff"
+              returnKeyType="done"
+              style={styles.tagInput}
+              value={tagQuery}
+            />
+            {canCreateTag && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setTagColorOpen(open => !open)}
+                style={styles.tagColorToggle}
+              >
+                <View
+                  style={[
+                    styles.colorSwatch,
+                    { backgroundColor: validTagColor ? tagColor : "#4261a0" },
+                  ]}
+                />
+                <CustomText type="body5" text="Color" />
+              </Pressable>
+            )}
+          </View>
+          {tagMenuOpen && matchingTags.length > 0 && (
+            <View style={styles.tagOptions}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                style={styles.tagOptionsScroll}
+              >
+                {matchingTags.map(tag => (
+                  <Pressable
+                    key={tag.value}
+                    onPress={() => selectTag(tag)}
+                    style={styles.tagOption}
+                  >
+                    <View
+                      style={[
+                        styles.colorSwatch,
+                        { backgroundColor: tag.color || "#4261a0" },
+                      ]}
+                    />
+                    <CustomText type="body4" text={tag.label} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          {canCreateTag && (
+            <>
+              <CustomText
+                type="body5"
+                text="Press Enter to create this tag."
+                style={styles.tagHint}
+              />
+              {tagColorOpen && (
+                <View style={styles.tagColorPanel}>
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={7}
+                    onChangeText={value => setTagColor(value)}
+                    placeholder="#4261A0"
+                    placeholderTextColor="#a8a8a8ff"
+                    style={styles.colorHexInput}
+                    value={tagColor}
+                  />
+                  <View style={styles.tagColorOptions}>
+                    {tagColors.map(color => (
+                      <Pressable
+                        accessibilityLabel={`Select ${color}`}
+                        accessibilityRole="button"
+                        key={color}
+                        onPress={() => setTagColor(color)}
+                        style={[
+                          styles.colorSwatch,
+                          styles.paletteSwatch,
+                          { backgroundColor: color },
+                          validTagColor &&
+                            tagColor.toUpperCase() === color &&
+                            styles.selectedPaletteSwatch,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
+            </>
+          )}
         </Field>
         <CustomButton
           disabled={!canSave || isSaving}
@@ -314,6 +482,89 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     marginBottom: 8,
+  },
+  tagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  tagInput: {
+    flex: 1,
+    height: 48,
+    borderWidth: 2,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
+    borderColor: "#ccc",
+    fontSize: 16,
+    color: "#000",
+  },
+  tagColorToggle: {
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  colorSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+  },
+  tagOptions: {
+    marginTop: 4,
+    maxHeight: 180,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  tagOptionsScroll: {
+    maxHeight: 180,
+  },
+  tagOption: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ddd",
+  },
+  tagHint: {
+    marginTop: 6,
+  },
+  tagColorPanel: {
+    marginTop: 8,
+    gap: 8,
+  },
+  colorHexInput: {
+    height: 42,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    color: "#000",
+  },
+  tagColorOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  paletteSwatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  selectedPaletteSwatch: {
+    borderWidth: 2,
+    borderColor: "#111",
   },
   choiceRow: {
     flexDirection: "row",

@@ -41,15 +41,44 @@ const addDays = (date, days) => {
 const monthDate = (year, month, day) =>
   new Date(year, month, Math.min(day, new Date(year, month + 1, 0).getDate()), 12);
 
-const getPreLastAvailableDay = (year, month) => {
+export const getPreLastAvailableDay = (year, month) => {
   const date = new Date(year, month + 1, 0, 12);
-  date.setDate(date.getDate() - 1);
-  if (date.getDay() === 0) {
-    date.setDate(date.getDate() - 2);
-  } else if (date.getDay() === 6) {
-    date.setDate(date.getDate() - 1);
-  }
+  const weekday = date.getDay();
+  const daysBeforeMonthEnd = {
+    0: 4,
+    1: 3,
+    2: 1,
+    3: 1,
+    4: 1,
+    5: 1,
+    6: 2,
+  }[weekday];
+  date.setDate(date.getDate() - daysBeforeMonthEnd);
   return date;
+};
+
+export const getSalaryScheduleForDate = (data, date = new Date()) => {
+  if (!data.salary) {
+    return null;
+  }
+  const dateString = asDateString(date);
+  const schedule = [
+    {
+      effective_date: data.salary.last_deposit
+        ? asDateString(data.salary.last_deposit)
+        : dateString,
+      amount: data.salary.amount,
+      income_type: data.salary.fixed ? "fixed" : "variable",
+      deposits_date: data.salary.deposits_date,
+      fixed_day: data.salary.fixed_day,
+    },
+    ...(data.salaryChanges || []),
+  ]
+    .filter(change => change.effective_date <= dateString)
+    .sort((left, right) =>
+      left.effective_date.localeCompare(right.effective_date),
+    );
+  return schedule[schedule.length - 1] || null;
 };
 
 export const getSalaryDeductions = (grossSalary, brackets, otherTaxes) => {
@@ -74,84 +103,124 @@ export const getSalaryDeductions = (grossSalary, brackets, otherTaxes) => {
 
 const createIncomeEvents = (data, projectionThroughDate) => {
   const { salary } = data;
-  if (!salary || !salary.fixed || !(salary.amount > 0) || !salary.deposits_date) {
+  if (!salary) {
     return [];
   }
-
-  const netMonthly = Math.max(
-    0,
-    salary.amount -
-      getSalaryDeductions(
-        salary.amount,
-        data.salaryDeductions,
-        data.otherTaxes,
-      ),
-  );
   const events = [];
   const salaryAccountId =
     data.accounts.find(account => account.name === "Main account")?.id ??
     data.accounts[0]?.id ??
     null;
-  const setupDate = salary.last_deposit
+  const initialEffectiveDate = salary.last_deposit
     ? asDateString(salary.last_deposit)
     : getLocalDate();
-  const from = dateAtNoon(setupDate);
+  const schedule = [
+    {
+      effective_date: initialEffectiveDate,
+      amount: Number(salary.amount || 0),
+      income_type: salary.fixed ? "fixed" : "variable",
+      deposits_date: salary.deposits_date,
+      fixed_day: salary.fixed_day,
+    },
+    ...(data.salaryChanges || []).map(change => ({
+      ...change,
+      amount: Number(change.amount || 0),
+    })),
+  ].sort((left, right) =>
+    left.effective_date.localeCompare(right.effective_date),
+  );
   const through = dateAtNoon(projectionThroughDate);
+  const savingsModeEnabled =
+    salary.savings_mode_enabled === true ||
+    Number(salary.savings_mode_enabled) === 1;
+  const savingsModeAmount = savingsModeEnabled
+    ? Math.max(0, Number(salary.savings_mode_amount || 0))
+    : 0;
 
-  if (salary.deposits_date === "Quincenal") {
+  for (let index = 0; index < schedule.length; index += 1) {
+    const current = schedule[index];
+    if (
+      current.income_type !== "fixed" ||
+      !(current.amount > 0) ||
+      !current.deposits_date
+    ) {
+      continue;
+    }
+    const effective = dateAtNoon(current.effective_date);
+    const nextEffective = schedule[index + 1]
+      ? dateAtNoon(schedule[index + 1].effective_date)
+      : null;
+    const netMonthly = Math.max(
+      0,
+      current.amount -
+        getSalaryDeductions(
+          current.amount,
+          data.salaryDeductions,
+          data.otherTaxes,
+        ) -
+        savingsModeAmount,
+    );
+    const firstMonth = new Date(
+      effective.getFullYear(),
+      effective.getMonth(),
+      1,
+      12,
+    );
     for (
-      let month = new Date(from.getFullYear(), from.getMonth(), 1, 12);
+      let month = firstMonth;
       month <= through;
       month = new Date(month.getFullYear(), month.getMonth() + 1, 1, 12)
     ) {
-      const dates = [
-        monthDate(month.getFullYear(), month.getMonth(), 15),
-        new Date(month.getFullYear(), month.getMonth() + 1, 0, 12),
-      ];
-      for (const date of dates) {
-        if (date > from) {
-          events.push({
-            date: getLocalDate(date),
-            amount: netMonthly / 2,
-            kind: "income",
-            name: "Salary",
-            source: "salary",
-            account_id: salaryAccountId,
-          });
+      const dates =
+        current.deposits_date === "Quincenal"
+          ? [
+              {
+                date: monthDate(month.getFullYear(), month.getMonth(), 15),
+                amount: netMonthly / 2,
+              },
+              {
+                date: new Date(month.getFullYear(), month.getMonth() + 1, 0, 12),
+                amount: netMonthly / 2,
+              },
+            ]
+          : [
+              {
+                date:
+                  current.deposits_date === "Last day of month"
+                    ? new Date(month.getFullYear(), month.getMonth() + 1, 0, 12)
+                    : current.deposits_date === "Pre last day of month"
+                      ? getPreLastAvailableDay(month.getFullYear(), month.getMonth())
+                      : current.deposits_date === "Fixed date"
+                        ? monthDate(
+                            month.getFullYear(),
+                            month.getMonth(),
+                            current.fixed_day || 1,
+                          )
+                        : null,
+                amount: netMonthly,
+              },
+            ];
+      for (const deposit of dates) {
+        if (!deposit.date) {
+          continue;
         }
+        const date = getLocalDate(deposit.date);
+        if (
+          deposit.date < effective ||
+          (index === 0 && date === initialEffectiveDate) ||
+          (nextEffective && deposit.date >= nextEffective)
+        ) {
+          continue;
+        }
+        events.push({
+          date,
+          amount: deposit.amount,
+          kind: "income",
+          name: "Salary",
+          source: "salary",
+          account_id: salaryAccountId,
+        });
       }
-    }
-    return events;
-  }
-
-  for (
-    let month = new Date(from.getFullYear(), from.getMonth(), 1, 12);
-    month <= through;
-    month = new Date(month.getFullYear(), month.getMonth() + 1, 1, 12)
-  ) {
-    let date;
-    if (salary.deposits_date === "Last day of month") {
-      date = new Date(month.getFullYear(), month.getMonth() + 1, 0, 12);
-    } else if (salary.deposits_date === "Pre last day of month") {
-      date = getPreLastAvailableDay(month.getFullYear(), month.getMonth());
-    } else if (salary.deposits_date === "Fixed date") {
-      date = monthDate(
-        month.getFullYear(),
-        month.getMonth(),
-        salary.fixed_day || 1,
-      );
-    } else {
-      continue;
-    }
-    if (date > from) {
-      events.push({
-        date: getLocalDate(date),
-        amount: netMonthly,
-        kind: "income",
-        name: "Salary",
-        source: "salary",
-        account_id: salaryAccountId,
-      });
     }
   }
   return events;
@@ -382,6 +451,12 @@ export const getCashflowProjection = (
             Number(data.salary.amount || 0),
             data.salaryDeductions,
             data.otherTaxes,
+          ),
+          savingsModeEnabled:
+            data.salary.savings_mode_enabled === true ||
+            Number(data.salary.savings_mode_enabled) === 1,
+          savingsModeMonthlyAmount: Number(
+            data.salary.savings_mode_amount || 0,
           ),
         }
       : null,

@@ -10,6 +10,7 @@ jest.mock("../src/utils/database_connector", () => ({
 const {
   getBalanceBeforeDate,
   getCashflowProjection,
+  getPreLastAvailableDay,
   getSalaryDeductions,
   subscriptionWouldGoNegativeWithinSixMonths,
   wouldGoNegativeWithinSixMonths,
@@ -193,9 +194,127 @@ describe("cash-flow calculations", () => {
     );
     expect(deductions).toBe(215850);
   });
+
+  test("reduces projected net salary by the monthly Savings mode amount", () => {
+    const today = new Date();
+    const todayString = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+    const projection = getCashflowProjection(
+      emptyData({
+        salary: {
+          amount: 100000,
+          balance: 0,
+          last_deposit: todayString,
+          fixed: 1,
+          deposits_date: "Last day of month",
+          fixed_day: null,
+          savings_mode_enabled: 1,
+          savings_mode_amount: 10000,
+        },
+      }),
+      today,
+    );
+    const nextSalaryDeposit = projection.events.find(
+      event => event.source === "salary",
+    );
+
+    expect(nextSalaryDeposit.amount).toBe(90000);
+  });
+
+  test("applies future salary changes from their effective date", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        salary: {
+          amount: 100000,
+          balance: 0,
+          last_deposit: "2026-10-01",
+          fixed: 1,
+          deposits_date: "Last day of month",
+          fixed_day: null,
+        },
+        salaryChanges: [
+          {
+            effective_date: "2026-11-01",
+            amount: 200000,
+            income_type: "fixed",
+            deposits_date: "Last day of month",
+            fixed_day: null,
+          },
+        ],
+      }),
+      new Date(2026, 9, 2, 12),
+      90,
+    );
+
+    expect(
+      projection.events.find(event => event.date === "2026-10-31").amount,
+    ).toBe(100000);
+    expect(
+      projection.events.find(event => event.date === "2026-11-30").amount,
+    ).toBe(200000);
+  });
+
+  test("stops projected deposits when a future salary schedule becomes unemployed", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        salary: {
+          amount: 100000,
+          balance: 0,
+          last_deposit: "2026-10-01",
+          fixed: 1,
+          deposits_date: "Last day of month",
+          fixed_day: null,
+        },
+        salaryChanges: [
+          {
+            effective_date: "2026-11-01",
+            amount: null,
+            income_type: "unemployed",
+            deposits_date: null,
+            fixed_day: null,
+          },
+        ],
+      }),
+      new Date(2026, 9, 2, 12),
+      90,
+    );
+
+    expect(projection.events.some(event => event.date === "2026-10-31")).toBe(true);
+    expect(projection.events.some(event => event.date === "2026-11-30")).toBe(false);
+  });
 });
 
 describe("subscription schedules", () => {
+  test("uses the requested pre-last deposit weekday rule", () => {
+    const asDate = value =>
+      `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(
+        value.getDate(),
+      ).padStart(2, "0")}`;
+
+    expect(asDate(getPreLastAvailableDay(2026, 9))).toBe("2026-10-29");
+    expect(asDate(getPreLastAvailableDay(2026, 10))).toBe("2026-11-27");
+    expect(asDate(getPreLastAvailableDay(2026, 4))).toBe("2026-05-28");
+    expect(asDate(getPreLastAvailableDay(2026, 6))).toBe("2026-07-30");
+    expect(asDate(getPreLastAvailableDay(2026, 11))).toBe("2026-12-30");
+    expect(asDate(getPreLastAvailableDay(2026, 1))).toBe("2026-02-26");
+  });
+
+  test("includes earlier subscription occurrences within the selected month", () => {
+    expect(
+      getSubscriptionOccurrenceDates(
+        {
+          start_date: "2026-10-02",
+          frequency: "monthly",
+        },
+        "2026-10-01",
+        "2026-10-31",
+      ),
+    ).toEqual(["2026-10-02"]);
+  });
+
   test("keeps a monthly end-of-month schedule on each month's last day", () => {
     expect(
       getSubscriptionOccurrenceDates(
