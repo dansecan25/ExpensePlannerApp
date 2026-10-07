@@ -6,8 +6,6 @@ import CustomText from "../../components/customText/customText";
 import ScrollableTile from "../../components/scrollableTile/scrollableTile";
 import {
   getCashflowData,
-  getExpensesForMonth,
-  getExpensesForToday,
   getLocalDate,
 } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
@@ -16,7 +14,6 @@ import {
   getCashflowProjection,
   getSalaryScheduleForDate,
 } from "../../utils/financeCalculations";
-import { getSubscriptionOccurrenceDates } from "../../utils/subscriptionSchedule";
 
 const formatMoney = (amount, currency) =>
   `${Number(amount || 0).toLocaleString(undefined, {
@@ -49,95 +46,55 @@ export default function HomeScreen({ navigation }) {
       const balanceBeforePayment = nextPayday
         ? getBalanceBeforeDate(projection, nextPayday, now)
         : projection.todayBalance;
-      const [todayRows, monthRows] = await Promise.all([
-        getExpensesForToday(),
-        getExpensesForMonth(year, month),
-      ]);
       const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
       const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(
         new Date(year, month, 0).getDate(),
       ).padStart(2, "0")}`;
-      const scheduledExpenses = data.subscriptions
-        .filter(subscription => Number(subscription.active) === 1)
-        .flatMap(subscription =>
-          getSubscriptionOccurrenceDates(
-            subscription,
-            monthStart,
-            monthEnd,
-          ).map(date => ({
-            id: `subscription-${subscription.id}-${date}`,
-            date,
-            name: subscription.name,
-            value: Number(subscription.amount),
-            kind: "expense",
-            subscription: true,
-            isScheduled: true,
-          })),
-        )
-        .filter(scheduled =>
-          !monthRows.some(
-            transaction =>
-              transaction.kind === "expense" &&
-              transaction.date.slice(0, 10) === scheduled.date &&
-              transaction.name.trim().toLowerCase() ===
-                scheduled.name.trim().toLowerCase(),
-          ),
-        );
-      const scheduledSalary = projection.events
+      const monthStartDate = new Date(year, month - 1, 1, 12);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const monthProjection = getCashflowProjection(
+        data,
+        monthStartDate,
+        daysInMonth - 1,
+      );
+      const monthMovements = monthProjection.events
+        .filter(event => event.date >= monthStart && event.date <= monthEnd)
         .filter(
           event =>
-            event.source === "salary" &&
-            event.date >= monthStart &&
-            event.date <= monthEnd,
+            !event.account_transfer || event.kind === "transfer_out",
         )
-        .map(event => ({
-          id: `salary-${event.date}`,
-          date: event.date,
-          name: "Salary",
-          value: event.amount,
-          kind: "income",
-          isScheduled: true,
-        }));
-      const scheduledRecurringDeductions = projection.events
         .filter(
           event =>
-            event.recurring_deduction &&
-            event.date >= monthStart &&
-            event.date <= monthEnd,
-        )
-        .map(event => ({
-          id: `recurring-deduction-${event.source_expense_id}-${event.date}`,
-          date: event.date,
-          name: event.name,
-          value: Number(event.amount),
-          inflated_value: event.inflated_value,
-          kind: "expense",
-          recurringDeduction: true,
-          isScheduled: true,
-        }))
-        .filter(
-          scheduled =>
-            !monthRows.some(
+            !(event.subscription || event.recurring_deduction) ||
+            !data.expenses.some(
               transaction =>
                 transaction.kind === "expense" &&
-                transaction.date.slice(0, 10) === scheduled.date &&
-                transaction.name.trim().toLowerCase() ===
-                  scheduled.name.trim().toLowerCase(),
+                transaction.date.slice(0, 10) === event.date &&
+                transaction.name.trim().toLocaleLowerCase() ===
+                  event.name.trim().toLocaleLowerCase(),
             ),
-        );
-      setTodayExpenses([
-        ...todayRows,
-        ...scheduledExpenses.filter(expense => expense.date === today),
-        ...scheduledRecurringDeductions.filter(
-          expense => expense.date === today,
-        ),
-      ]);
-      setMonthExpenses([
-        ...monthRows,
-        ...scheduledExpenses,
-        ...scheduledRecurringDeductions,
-        ...scheduledSalary,
-      ]);
+        )
+        .map((event, index) => ({
+          ...event,
+          id:
+            event.id ??
+            `${event.date}-${event.name}-${event.kind}-${event.transfer_id ?? event.source_expense_id ?? index}`,
+          kind: event.account_transfer
+            ? "transfer"
+            : Number(event.is_savings) === 1 && event.kind === "expense"
+              ? "savings"
+              : event.kind,
+          name:
+            event.kind === "savings_use"
+              ? `Savings used · ${event.name}`
+              : event.name,
+          recurringDeduction:
+            Boolean(event.recurring_deduction) ||
+            (Boolean(event.recurrence_frequency) &&
+              !event.account_transfer),
+        }));
+      setTodayExpenses(monthMovements.filter(event => event.date === today));
+      setMonthExpenses(monthMovements);
       setAvailableBeforePayment(balanceBeforePayment);
       setCurrency(data.salary?.currency || "");
       setHasFixedIncome(
@@ -161,23 +118,33 @@ export default function HomeScreen({ navigation }) {
     year: "numeric",
   });
   const todayLabels = todayExpenses.map(expense => {
-    const prefix = expense.kind === "income" ? "+ " : "";
-    const amount =
+    const prefix =
       expense.kind === "income"
-        ? expense.value
-        : expense.inflated_value ?? expense.value;
+        ? "+ "
+        : expense.kind === "transfer"
+          ? "↔ "
+          : "- ";
+    const amount =
+      expense.kind === "expense"
+        ? expense.inflated_value ?? expense.amount ?? expense.value
+        : expense.amount ?? expense.value;
     const recurringLabel =
       expense.recurringDeduction || expense.recurrence_frequency
         ? " · Recurring"
         : "";
-    return `${prefix}${expense.name}${recurringLabel} · ${formatMoney(amount, currency)}`;
+    const movementName = expense.subscription
+      ? `${expense.name} · Subscription`
+      : expense.kind === "savings"
+        ? `Savings · ${expense.name}`
+        : expense.name;
+    return `${prefix}${movementName}${recurringLabel} · ${formatMoney(amount, currency)}`;
   });
-  const monthExpenseRows = monthExpenses.filter(
-    expense => expense.kind !== "income",
+  const monthOutflowRows = monthExpenses.filter(
+    movement => movement.kind === "expense" || movement.kind === "savings",
   );
-  const monthTotal = monthExpenseRows.reduce(
-    (sum, expense) =>
-      sum + Number(expense.inflated_value ?? expense.value ?? 0),
+  const monthTotal = monthOutflowRows.reduce(
+    (sum, movement) =>
+      sum + Number(movement.inflated_value ?? movement.amount ?? 0),
     0,
   );
   const monthLabels = [...monthExpenses]
@@ -188,15 +155,20 @@ export default function HomeScreen({ navigation }) {
     .map(expense => {
       const date = formatDisplayDate(expense.date);
       const isIncome = expense.kind === "income";
-      const amount = isIncome
-        ? expense.value
-        : expense.inflated_value ?? expense.value;
+      const isTransfer = expense.kind === "transfer";
+      const amount =
+        expense.kind === "expense"
+          ? expense.inflated_value ?? expense.amount ?? expense.value
+          : expense.amount ?? expense.value;
       const movementLabel = expense.subscription
         ? `${expense.name} · Subscription`
         : expense.recurringDeduction || expense.recurrence_frequency
           ? `${expense.name} · Recurring`
-          : expense.name;
-      return `${date} · ${isIncome ? "+" : "-"}${movementLabel} · ${formatMoney(
+          : expense.kind === "savings"
+            ? `Savings · ${expense.name}`
+            : expense.name;
+      const sign = isIncome ? "+" : isTransfer ? "↔ " : "-";
+      return `${date} · ${sign}${movementLabel} · ${formatMoney(
         amount,
         currency,
       )}`;
@@ -224,7 +196,7 @@ export default function HomeScreen({ navigation }) {
         />
       </View>
       <View style={styles.sectionHeading}>
-        <CustomText type="header2" text="Today's expenses" style={styles.heading} />
+        <CustomText type="header2" text="Today's movements" style={styles.heading} />
         <CustomButton
           onPress={() => navigation.navigate("Add today expense")}
           text="Add"
@@ -237,10 +209,10 @@ export default function HomeScreen({ navigation }) {
       />
       <View style={styles.monthHeading}>
         <View style={styles.heading}>
-          <CustomText type="header2" text="This month's expenses" />
+          <CustomText type="header2" text="This month's movements" />
           <CustomText
             type="body3"
-            text={`${monthLabel} · ${formatMoney(monthTotal, currency)}`}
+            text={`${monthLabel} · Cash outflows ${formatMoney(monthTotal, currency)}`}
           />
         </View>
       </View>

@@ -44,8 +44,13 @@ Home is the main view and should retain the current visual direction shown in
 `BaseData/Screenshots/Screenshot_20261006_210856.png`. It contains:
 
 - A summary of money available before the next payment.
-- A summary/list of today's expenses, with an **Add** action.
-- A summary/list of this month's expenses.
+- A summary/list of all today's movements from local midnight through the end
+  of the local calendar day, with an **Add** action.
+- A summary/list of all movements dated in the current calendar month, including
+  deductions, savings contributions/use, income, account transfers, subscriptions,
+  and recurring transactions. Transfers are listed once, not as a debit/credit
+  pair. Cash outflows total excludes income, transfers, and savings usage already
+  reserved from an account when contributed.
 - The hamburger menu for reaching the app's other areas.
 
 Move the database restart/factory-reset action from Home to Settings. Reset should
