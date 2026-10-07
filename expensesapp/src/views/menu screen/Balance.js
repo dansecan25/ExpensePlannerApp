@@ -12,6 +12,7 @@ import {
   getCashflowProjection,
 } from "../../utils/financeCalculations";
 import { formatDisplayDate } from "../../utils/dateFormatting";
+import { getSavingsAvailableAsOfDate } from "../../utils/savingsCalculations";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 
 const daysBetween = (fromDate, toDate) => {
@@ -38,7 +39,9 @@ const isSalaryIncome = event =>
       .some(tag => tag.trim().toLowerCase() === "salary"));
 
 const movementType = event =>
-  event.subscription
+  event.kind === "savings_use"
+    ? "savings use"
+    : event.subscription
     ? "subscription"
     : event.recurring_deduction || event.recurrence_frequency
       ? "recurring deduction"
@@ -90,6 +93,7 @@ export default function BalanceScreen() {
     return dashboardProjection.events
       .filter(
         event =>
+          !event.account_transfer &&
           event.date >= selectedDateRange.from &&
           event.date <= selectedDateRange.to,
       )
@@ -183,14 +187,27 @@ export default function BalanceScreen() {
   const savings = useMemo(
     () =>
       (data?.expenses || []).filter(
-        item => item.kind === "expense" && Number(item.is_savings),
+        item =>
+          item.kind === "savings" ||
+          (item.kind === "expense" && Number(item.is_savings)),
       ),
     [data],
   );
-  const savingsTotal = savings.reduce(
-    (sum, item) => sum + Number(item.value || 0),
-    0,
+  const savingsUsage = useMemo(
+    () =>
+      (data?.expenses || []).filter(
+        item =>
+          item.kind === "savings_use" ||
+          (item.kind === "expense" &&
+            Number(item.is_savings_withdrawal) === 1),
+      ),
+    [data],
   );
+  const savingsTotal =
+    getSavingsAvailableAsOfDate(savings, getLocalDate()) -
+    savingsUsage
+      .filter(item => item.date.slice(0, 10) <= getLocalDate())
+      .reduce((sum, item) => sum + Number(item.value || 0), 0);
   const savingsGroups = useMemo(() => {
     const tagNamesById = new Map(
       (data?.tags || []).map(tag => [Number(tag.id), tag.name]),
@@ -297,7 +314,22 @@ export default function BalanceScreen() {
               <EntryCard key={group} title={group}>
                 {dateOptions(
                   money(
-                    entries.reduce((sum, item) => sum + Number(item.value || 0), 0),
+                    getSavingsAvailableAsOfDate(entries, getLocalDate()) -
+                      savingsUsage
+                        .filter(item => {
+                          const usageTagNames = String(item.tags || "")
+                            .split(",")
+                            .map(name => name.trim().toLocaleLowerCase())
+                            .filter(Boolean);
+                          return (
+                            usageTagNames.includes(group.toLocaleLowerCase()) &&
+                            item.date.slice(0, 10) <= getLocalDate()
+                          );
+                        })
+                        .reduce(
+                          (sum, item) => sum + Number(item.value || 0),
+                          0,
+                        ),
                     currency,
                   ),
                 )}

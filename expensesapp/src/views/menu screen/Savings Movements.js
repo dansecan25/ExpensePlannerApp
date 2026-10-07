@@ -13,6 +13,7 @@ import {
   deleteExpense,
   deleteSavingsGroupTag,
   getLocalDate,
+  updateSavingsAmountUsed,
 } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { getRecurringDeductionOccurrenceDates } from "../../utils/recurringDeductionSchedule";
@@ -68,11 +69,14 @@ export default function SavingsMovementsScreen({ navigation }) {
   const { data, error, reload } = useFinanceData();
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [savingsUsedDrafts, setSavingsUsedDrafts] = useState({});
   const currency = data?.salary?.currency || "";
   const savingsMovements = useMemo(
     () =>
       (data?.expenses || []).filter(
-        movement => movement.kind === "expense" && Number(movement.is_savings),
+        movement =>
+          movement.kind === "savings" ||
+          (movement.kind === "expense" && Number(movement.is_savings)),
       ),
     [data],
   );
@@ -80,8 +84,9 @@ export default function SavingsMovementsScreen({ navigation }) {
     () =>
       (data?.expenses || []).filter(
         movement =>
-          movement.kind === "expense" &&
-          Number(movement.is_savings_withdrawal) === 1,
+          (movement.kind === "expense" &&
+            Number(movement.is_savings_withdrawal) === 1) ||
+          movement.kind === "savings_use",
       ),
     [data],
   );
@@ -182,6 +187,34 @@ export default function SavingsMovementsScreen({ navigation }) {
   const accountNames = new Map(
     (data?.accounts || []).map(account => [account.id, account.name]),
   );
+  const savingsByAccount = useMemo(() => {
+    const byAccount = new Map();
+    for (const movement of savingsAdditionsToDate) {
+      const accountId = movement.account_id;
+      if (accountId === null || accountId === undefined) {
+        continue;
+      }
+      byAccount.set(
+        accountId,
+        Number(byAccount.get(accountId) || 0) +
+          Number(movement.value || 0) -
+          (movement.isRecurringOccurrence
+            ? 0
+            : Number(movement.savings_used || 0)),
+      );
+    }
+    for (const movement of spendingMovements) {
+      if (movement.date.slice(0, 10) > today) {
+        continue;
+      }
+      byAccount.set(
+        movement.account_id,
+        Number(byAccount.get(movement.account_id) || 0) -
+          Number(movement.value || 0),
+      );
+    }
+    return byAccount;
+  }, [savingsAdditionsToDate, spendingMovements, today]);
   const tagOptions = (data?.tags || []).map(tag => ({
     label: tag.name,
     value: tag.id,
@@ -194,6 +227,37 @@ export default function SavingsMovementsScreen({ navigation }) {
     } catch (assignError) {
       console.error("Failed to assign savings movement tag:", assignError);
       Alert.alert("Could not assign tag", "Please try again.");
+    }
+  };
+
+  const saveSavingsUsed = async movement => {
+    const amount = Number(
+      savingsUsedDrafts[movement.id] ?? movement.savings_used ?? 0,
+    );
+    const accountAvailable =
+      Number(savingsByAccount.get(movement.account_id) || 0) +
+      Number(movement.savings_used || 0);
+    if (!Number.isFinite(amount) || amount < 0 || amount > accountAvailable) {
+      Alert.alert(
+        "Check savings used",
+        "The amount used cannot exceed savings currently available in this account.",
+      );
+      return;
+    }
+    try {
+      await updateSavingsAmountUsed(movement.id, amount);
+      setSavingsUsedDrafts(current => {
+        const updated = { ...current };
+        delete updated[movement.id];
+        return updated;
+      });
+      await reload();
+    } catch (saveError) {
+      console.error("Failed to update savings used:", saveError);
+      Alert.alert(
+        "Could not update savings usage",
+        saveError instanceof Error ? saveError.message : "Please try again.",
+      );
     }
   };
 
@@ -281,6 +345,16 @@ export default function SavingsMovementsScreen({ navigation }) {
         />
         <EntryCard title="Savings available as of today">
           {dateOptions(money(savingsAvailable, currency))}
+          {(data?.accounts || []).map(account => (
+            <View key={account.id} style={styles.savingItem}>
+              {dateOptions(
+                `${account.name}: ${money(
+                  savingsByAccount.get(account.id) || 0,
+                  currency,
+                )}`,
+              )}
+            </View>
+          ))}
         </EntryCard>
         <Section title="Recurring savings">
           {activeSavingsRecurrences.map(movement => (
@@ -353,6 +427,13 @@ export default function SavingsMovementsScreen({ navigation }) {
               (total, movement) => total + Number(movement.value || 0),
               0,
             ) -
+              group.additions
+                .filter(movement => !movement.isRecurringOccurrence)
+                .reduce(
+                  (total, movement) =>
+                    total + Number(movement.savings_used || 0),
+                  0,
+                ) -
               group.spending
                 .filter(movement => movement.date.slice(0, 10) <= today)
                 .reduce(
@@ -389,12 +470,37 @@ export default function SavingsMovementsScreen({ navigation }) {
                       )}`,
                     )}
                     {!movement.isRecurringOccurrence ? (
-                      <CustomButton
-                        onPress={() => confirmDeleteMovement(movement)}
-                        style={styles.inlineButton}
-                        text="Delete movement"
-                        type="warning"
-                      />
+                      <>
+                        <CustomText type="body4" text="Amount used from this account's savings" />
+                        <CustomTextInput
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          setValue={value =>
+                            setSavingsUsedDrafts(current => ({
+                              ...current,
+                              [movement.id]: value,
+                            }))
+                          }
+                          style={styles.inputSpacing}
+                          value={String(
+                            savingsUsedDrafts[movement.id] ??
+                              movement.savings_used ??
+                              0,
+                          )}
+                        />
+                        <CustomButton
+                          onPress={() => saveSavingsUsed(movement)}
+                          style={styles.inlineButton}
+                          text="Save amount used"
+                          type="secondary"
+                        />
+                        <CustomButton
+                          onPress={() => confirmDeleteMovement(movement)}
+                          style={styles.inlineButton}
+                          text="Delete movement"
+                          type="warning"
+                        />
+                      </>
                     ) : null}
                     {group.id === null &&
                     !getTagIds(movement).length &&

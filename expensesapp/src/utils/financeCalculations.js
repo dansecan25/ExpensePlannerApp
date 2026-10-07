@@ -77,6 +77,7 @@ export const getSalaryScheduleForDate = (data, date = new Date()) => {
       income_type: data.salary.fixed ? "fixed" : "variable",
       deposits_date: data.salary.deposits_date,
       fixed_day: data.salary.fixed_day,
+      account_id: data.salary.account_id,
     },
     ...(data.salaryChanges || []),
   ]
@@ -124,6 +125,7 @@ const createIncomeEvents = (data, projectionThroughDate) => {
       income_type: salary.fixed ? "fixed" : "variable",
       deposits_date: salary.deposits_date,
       fixed_day: salary.fixed_day,
+      account_id: salary.account_id,
     },
     ...(data.salaryChanges || []).map(change => ({
       ...change,
@@ -221,7 +223,7 @@ const createIncomeEvents = (data, projectionThroughDate) => {
           kind: "income",
           name: "Salary",
           source: "salary",
-          account_id: salaryAccountId,
+          account_id: current.account_id ?? salaryAccountId,
         });
       }
     }
@@ -240,7 +242,7 @@ const createSubscriptionEvents = (subscription, fromDate, throughDate) => {
   ).map(date => ({
     date,
     amount: Number(subscription.amount),
-    kind: "expense",
+    kind: Number(subscription.is_savings) === 1 ? "savings" : "expense",
     name: subscription.name,
     account_id: subscription.account_id,
     tag_id: subscription.tag_id,
@@ -258,7 +260,7 @@ const createRecurringDeductionEvents = (deduction, fromDate, throughDate) =>
     date,
     amount: Number(deduction.amount ?? deduction.value),
     inflated_value: deduction.inflated_value,
-    kind: "expense",
+    kind: deduction.kind === "savings" ? "savings" : "expense",
     name: deduction.name,
     account_id: deduction.account_id,
     recurrence_frequency: deduction.recurrence_frequency,
@@ -274,6 +276,18 @@ const createRecurringDeductionEvents = (deduction, fromDate, throughDate) =>
 
 const signedAmount = event => {
   const amount = Number(event.amount ?? event.value ?? 0);
+  if (
+    event.kind === "savings_use" ||
+    Number(event.is_savings_withdrawal) === 1
+  ) {
+    return 0;
+  }
+  if (event.kind === "transfer_in") {
+    return Math.abs(amount);
+  }
+  if (event.kind === "transfer_out") {
+    return -Math.abs(amount);
+  }
   if (event.kind === "income") {
     return Math.abs(amount);
   }
@@ -282,6 +296,12 @@ const signedAmount = event => {
 };
 
 const getEventType = event => {
+  if (event.kind === "transfer_in" || event.kind === "transfer_out") {
+    return "account transfer";
+  }
+  if (event.kind === "savings_use") {
+    return "savings use";
+  }
   if (event.subscription) {
     return "subscription";
   }
@@ -304,6 +324,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
       .map(event => ({ ...event, date: asDateString(event.date) })),
     ...data.expenses.flatMap(event =>
       event.kind === "income" ||
+      event.kind === "savings_use" ||
       !event.recurrence_frequency ||
       (Number(event.recurrence_active ?? 1) !== 1 &&
         !event.recurrence_stopped_date)
@@ -322,6 +343,48 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
         endDate,
       ),
     ),
+    ...(data.accountTransfers || []).flatMap(transfer => {
+      const firstDate = asDateString(transfer.date);
+      const stoppedDate = transfer.recurrence_stopped_date
+        ? asDateString(transfer.recurrence_stopped_date)
+        : null;
+      const recurrenceIsActive = Number(transfer.recurrence_active ?? 1) === 1;
+      const keepFirstOccurrence =
+        recurrenceIsActive || !stoppedDate || firstDate <= stoppedDate;
+      const repeatDates = transfer.recurrence_frequency
+        ? getRecurringDeductionOccurrenceDates(
+            transfer,
+            recurringStartDate,
+            endDate,
+          )
+        : [];
+      const transferDates = [
+        ...(keepFirstOccurrence ? [firstDate] : []),
+        ...repeatDates,
+      ];
+      return transferDates.map(date => [
+        {
+          date,
+          amount: Number(transfer.amount),
+          kind: "transfer_out",
+          name: `Transfer to ${transfer.to_account_name || "account"}`,
+          account_id: transfer.from_account_id,
+          account_transfer: true,
+          transfer_id: transfer.id,
+          recurrence_frequency: transfer.recurrence_frequency,
+        },
+        {
+          date,
+          amount: Number(transfer.amount),
+          kind: "transfer_in",
+          name: `Transfer from ${transfer.from_account_name || "account"}`,
+          account_id: transfer.to_account_id,
+          account_transfer: true,
+          transfer_id: transfer.id,
+          recurrence_frequency: transfer.recurrence_frequency,
+        },
+      ]);
+    }).flat(),
   ];
   if (extra.event) {
     const candidateDate = asDateString(extra.event.date);

@@ -38,7 +38,9 @@ const TransactionForm = ({
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(getLocalDate());
-  const [kind, setKind] = useState("expense");
+  const [kind, setKind] = useState(
+    initialSavingsWithdrawal ? "savings_use" : "expense",
+  );
   const [accounts, setAccounts] = useState([]);
   const [tags, setTags] = useState([]);
   const [accountId, setAccountId] = useState(null);
@@ -49,7 +51,6 @@ const TransactionForm = ({
   const [tagColor, setTagColor] = useState("#4261a0");
   const [isInflated, setIsInflated] = useState(false);
   const [inflatedAmount, setInflatedAmount] = useState("");
-  const [isSavings, setIsSavings] = useState(false);
   const [isRecurringDeduction, setIsRecurringDeduction] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState("monthly");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
@@ -185,7 +186,12 @@ const TransactionForm = ({
         name,
         amount,
         date,
-        type: kind === "income" ? "income" : "deduction",
+        type:
+          kind === "income"
+            ? "income"
+            : kind === "savings"
+              ? "savings"
+              : "deduction",
         validDate: isValidLocalDate(date),
         inflationValid,
       });
@@ -199,7 +205,7 @@ const TransactionForm = ({
     setIsSaving(true);
     try {
       const inflated = isInflated ? numericInflatedAmount : null;
-      if (kind === "expense") {
+      if (kind !== "income" && kind !== "savings_use") {
         const financeData = await getCashflowData();
         if (
           wouldGoNegativeWithinSixMonths(financeData, {
@@ -208,7 +214,7 @@ const TransactionForm = ({
             amount: numericAmount,
             inflated_value: inflated,
             account_id: accountId,
-            kind: "expense",
+            kind,
             recurrence_frequency: isRecurringDeduction
               ? recurrenceFrequency
               : null,
@@ -233,7 +239,7 @@ const TransactionForm = ({
       }
 
       let selectedTagIds = tagId === null ? [] : [tagId];
-      if (kind === "expense" && tagId === null && tagQuery.trim()) {
+      if (kind !== "income" && tagId === null && tagQuery.trim()) {
         const savedTag = await createTag(tagQuery.trim(), tagColor);
         selectedTagIds = [savedTag.id];
       }
@@ -248,15 +254,18 @@ const TransactionForm = ({
         description,
         {
           kind,
-          isSavings: kind === "expense" && isSavings,
-          isSavingsWithdrawal:
-            kind === "expense" && initialSavingsWithdrawal,
+          isSavings: kind === "savings",
+          isSavingsWithdrawal: initialSavingsWithdrawal,
           recurrenceFrequency:
-            kind === "expense" && isRecurringDeduction
+            kind !== "income" &&
+            kind !== "savings_use" &&
+            isRecurringDeduction
               ? recurrenceFrequency
               : null,
           recurrenceEndDate:
-            kind === "expense" && isRecurringDeduction
+            kind !== "income" &&
+            kind !== "savings_use" &&
+            isRecurringDeduction
               ? recurrenceEndDate || null
               : null,
         },
@@ -276,9 +285,13 @@ const TransactionForm = ({
   const title =
     kind === "income"
       ? "Record income"
-      : isVariation
-        ? "Record a deduction"
-        : "In what did you spend money today?";
+      : kind === "savings_use"
+        ? "Record savings used"
+        : kind === "savings"
+          ? "Add to savings"
+          : isVariation
+            ? "Record a deduction"
+            : "In what did you spend money today?";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -288,7 +301,7 @@ const TransactionForm = ({
         showsVerticalScrollIndicator={false}
       >
         <CustomText type="header2" text={title} style={styles.title} />
-        {isVariation && (
+        {!initialSavingsWithdrawal && (
           <>
             <CustomText type="body3" text="Transaction type" />
             <View style={styles.choiceRow}>
@@ -300,25 +313,37 @@ const TransactionForm = ({
               />
               <CustomButton
                 onPress={() => {
-                  setKind("income");
+                  setKind("savings");
                   setIsInflated(false);
-                  setIsSavings(false);
-                  setIsRecurringDeduction(false);
                 }}
                 style={styles.choice}
-                text="Income"
-                type={kind === "income" ? "primary" : "secondary"}
+                text="Savings"
+                type={kind === "savings" ? "primary" : "secondary"}
               />
+              {isVariation ? (
+                <CustomButton
+                  onPress={() => {
+                    setKind("income");
+                    setIsInflated(false);
+                    setIsRecurringDeduction(false);
+                  }}
+                  style={styles.choice}
+                  text="Income"
+                  type={kind === "income" ? "primary" : "secondary"}
+                />
+              ) : null}
             </View>
-            <Field label="Date (YYYY-MM-DD)">
-              <CustomTextInput
-                autoCapitalize="none"
-                placeholder="2026-10-06"
-                setValue={setDate}
-                value={date}
-              />
-            </Field>
           </>
+        )}
+        {isVariation && (
+          <Field label="Date (YYYY-MM-DD)">
+            <CustomTextInput
+              autoCapitalize="none"
+              placeholder="2026-10-06"
+              setValue={setDate}
+              value={date}
+            />
+          </Field>
         )}
 
         <Field label="Name">
@@ -357,16 +382,19 @@ const TransactionForm = ({
                 />
               </Field>
             )}
+          </>
+        )}
+        {(kind === "expense" || kind === "savings") && (
+          <>
             <View style={styles.checkRow}>
-              <CustomText type="body4" text="Count this as savings" />
-              <CustomCheckbox
-                checked={isSavings}
-                label="Savings"
-                onToggle={() => setIsSavings(value => !value)}
+              <CustomText
+                type="body4"
+                text={
+                  kind === "savings"
+                    ? "Recurring savings contribution"
+                    : "Recurring deduction"
+                }
               />
-            </View>
-            <View style={styles.checkRow}>
-              <CustomText type="body4" text="Recurring deduction" />
               <CustomCheckbox
                 checked={isRecurringDeduction}
                 label="Repeat"
@@ -440,7 +468,11 @@ const TransactionForm = ({
             valueField="value"
           />
         </Field>
-        <Field label={isSavings ? "Savings tag (optional)" : "Tag (optional)"}>
+        <Field
+          label={
+            kind === "savings" ? "Savings tag (optional)" : "Tag (optional)"
+          }
+        >
           <View style={styles.tagRow}>
             <TextInput
               autoCapitalize="sentences"
@@ -451,7 +483,11 @@ const TransactionForm = ({
               }}
               onFocus={() => setTagMenuOpen(true)}
               onSubmitEditing={handleTagSubmit}
-              placeholder={isSavings ? "Search or create a savings tag" : "Search or create a tag"}
+              placeholder={
+                kind === "savings"
+                  ? "Search or create a savings tag"
+                  : "Search or create a tag"
+              }
               placeholderTextColor="#a8a8a8ff"
               returnKeyType="done"
               style={styles.tagInput}
@@ -544,7 +580,17 @@ const TransactionForm = ({
           disabled={!canSave || isSaving}
           onPress={handleSave}
           style={styles.saveButton}
-          text={isSaving ? "Saving..." : kind === "income" ? "Add income" : "Add expense"}
+          text={
+            isSaving
+              ? "Saving..."
+              : kind === "income"
+                ? "Add income"
+                : kind === "savings"
+                  ? "Add savings"
+                  : kind === "savings_use"
+                    ? "Save usage"
+                    : "Add expense"
+          }
         />
       </ScrollView>
     </SafeAreaView>

@@ -20,6 +20,7 @@ import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCu
 import {
   getLocalDate,
   exportDatabaseBackup,
+  getAccountsCreated,
   getSalaryRow,
   getSalaryScheduleChanges,
   isValidLocalDate,
@@ -47,6 +48,8 @@ export default function SettingsScreen({ navigation }) {
   const { clear, pullFromDB, salaryStore } = useContext(Context);
   const [isResetting, setIsResetting] = useState(false);
   const [salaryAmount, setSalaryAmount] = useState("");
+  const [salaryAccounts, setSalaryAccounts] = useState([]);
+  const [salaryAccountId, setSalaryAccountId] = useState(null);
   const [isSavingSalary, setIsSavingSalary] = useState(false);
   const [incomeType, setIncomeType] = useState("fixed");
   const [payDate, setPayDate] = useState("Pre last day of month");
@@ -61,8 +64,15 @@ export default function SettingsScreen({ navigation }) {
 
   useEffect(() => {
     let isMounted = true;
-    Promise.all([getSalaryRow(), getSalaryScheduleChanges()])
-      .then(([salary, changes]) => {
+    Promise.all([
+      getSalaryRow(),
+      getSalaryScheduleChanges(),
+      getAccountsCreated(),
+    ])
+      .then(([salary, changes, accounts]) => {
+        if (isMounted) {
+          setSalaryAccounts(accounts);
+        }
         if (!salary) {
           return;
         }
@@ -77,6 +87,7 @@ export default function SettingsScreen({ navigation }) {
           income_type: salary.fixed ? "fixed" : "variable",
           deposits_date: salary.deposits_date,
           fixed_day: salary.fixed_day,
+          account_id: salary.account_id,
         };
         if (isMounted && salary?.amount !== null && salary?.amount !== undefined) {
           setSalaryAmount(
@@ -92,6 +103,9 @@ export default function SettingsScreen({ navigation }) {
           setIncomeType(activeSchedule.income_type);
           setPayDate(activeSchedule.deposits_date || "Pre last day of month");
           setPayDay(activeSchedule.fixed_day || 15);
+          setSalaryAccountId(
+            activeSchedule.account_id ?? salary.account_id ?? accounts[0]?.id ?? null,
+          );
         }
       })
       .catch(error => {
@@ -134,6 +148,7 @@ export default function SettingsScreen({ navigation }) {
         incomeType,
         depositsDate: incomeType === "fixed" ? payDate : null,
         fixedDay: incomeType === "fixed" ? payDay : null,
+        accountId: salaryAccountId,
       });
       await pullFromDB();
       Alert.alert(
@@ -424,6 +439,25 @@ export default function SettingsScreen({ navigation }) {
                 style={styles.resetDescription}
               />
             )}
+            <CustomText
+              type="body3"
+              text="Salary deposit account"
+              style={styles.inputLabel}
+            />
+            <Dropdown
+              data={salaryAccounts.map(account => ({
+                label: account.name,
+                value: account.id,
+              }))}
+              labelField="label"
+              onChange={item => setSalaryAccountId(item.value)}
+              placeholder="Select account"
+              placeholderStyle={dropdownStyles.placeholderText}
+              selectedTextStyle={dropdownStyles.selectedText}
+              style={styles.input}
+              value={salaryAccountId}
+              valueField="value"
+            />
             <CustomText
               type="body3"
               text="When should this change apply?"

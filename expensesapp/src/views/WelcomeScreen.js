@@ -31,12 +31,15 @@ const WelcomeScreen = ({ navigation }) => {
   const [fixedSalary, setFixedSalary] = useState(true);
   const [payDate, setPayDate] = useState(null);
   const [currency, setCurrency] = useState("CRC");
+  const [salaryAccountChoice, setSalaryAccountChoice] = useState("main");
+  const [newSalaryAccountName, setNewSalaryAccountName] = useState("");
   const [payDay, setPayDay] = useState(15);
   const [isSaving, setIsSaving] = useState(false);
 
   const canContinue =
     isValidAmount(startingBalance) &&
     currency.trim().length > 0 &&
+    (salaryAccountChoice !== "other" || newSalaryAccountName.trim().length > 0) &&
     (!fixedSalary ||
       (isValidAmount(salaryAmount) &&
         Number(salaryAmount) > 0 &&
@@ -53,6 +56,10 @@ const WelcomeScreen = ({ navigation }) => {
         fixed: fixedSalary,
         deposits_date: fixedSalary ? payDate : null,
         fixed_day: fixedSalary && payDate === "Fixed date" ? payDay : null,
+        salaryAccountName:
+          salaryAccountChoice === "other"
+            ? newSalaryAccountName.trim()
+            : "Main account",
       });
       navigation.navigate("Taxes config");
     } catch (error) {
@@ -171,6 +178,34 @@ const WelcomeScreen = ({ navigation }) => {
             style={styles.hint}
           />
         )}
+
+        <CustomText
+          type="body3"
+          text="Salary deposit account"
+          style={styles.fieldLabel}
+        />
+        <Dropdown
+          data={[
+            { label: "Main account", value: "main" },
+            { label: "Create another account", value: "other" },
+          ]}
+          labelField="label"
+          onChange={item => setSalaryAccountChoice(item.value)}
+          placeholder="Choose an account"
+          placeholderStyle={dropdownStyles.placeholderText}
+          selectedTextStyle={dropdownStyles.selectedText}
+          style={dropdownStyles.input}
+          value={salaryAccountChoice}
+          valueField="value"
+        />
+        {salaryAccountChoice === "other" ? (
+          <CustomTextInput
+            placeholder="New salary account name"
+            setValue={setNewSalaryAccountName}
+            style={styles.fieldLabel}
+            value={newSalaryAccountName}
+          />
+        ) : null}
 
         <CustomText
           type="body3"

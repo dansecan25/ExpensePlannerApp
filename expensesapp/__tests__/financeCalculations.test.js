@@ -158,6 +158,165 @@ describe("cash-flow calculations", () => {
     });
   });
 
+  test("moves money between accounts without changing the combined balance", () => {
+    const asOf = new Date(2026, 0, 1, 12);
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 25 },
+        ],
+        accountTransfers: [
+          {
+            date: "2026-01-03",
+            from_account_id: 1,
+            to_account_id: 2,
+            amount: 30,
+            from_account_name: "Main account",
+            to_account_name: "BAC",
+          },
+        ],
+      }),
+      asOf,
+      5,
+    );
+
+    expect(projection.todayBalance).toBe(125);
+    expect(
+      getAccountBalancesOnDate(projection, "2026-01-03", asOf).accounts.map(
+        account => account.balance,
+      ),
+    ).toEqual([70, 55]);
+    expect(
+      getAccountBalancesOnDate(projection, "2026-01-03", asOf).total,
+    ).toBe(125);
+  });
+
+  test("projects recurring account transfers only on their scheduled dates", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 0 },
+        ],
+        accountTransfers: [
+          {
+            id: 9,
+            date: "2026-01-03",
+            from_account_id: 1,
+            to_account_id: 2,
+            amount: 10,
+            from_account_name: "Main account",
+            to_account_name: "BAC",
+            recurrence_frequency: "weekly",
+            recurrence_active: 1,
+          },
+        ],
+      }),
+      new Date(2026, 0, 1, 12),
+      16,
+    );
+
+    expect(
+      projection.events
+        .filter(event => event.kind === "transfer_out")
+        .map(event => event.date),
+    ).toEqual(["2026-01-03", "2026-01-10", "2026-01-17"]);
+    expect(projection.endingBalance).toBe(100);
+    expect(
+      getAccountBalancesOnDate(
+        projection,
+        "2026-01-10",
+        new Date(2026, 0, 1, 12),
+      ).accounts.map(account => account.balance),
+    ).toEqual([80, 20]);
+  });
+
+  test("stopped recurring transfers retain dates through the stop date only", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 0 },
+        ],
+        accountTransfers: [
+          {
+            id: 10,
+            date: "2026-01-03",
+            from_account_id: 1,
+            to_account_id: 2,
+            amount: 10,
+            from_account_name: "Main account",
+            to_account_name: "BAC",
+            recurrence_frequency: "weekly",
+            recurrence_active: 0,
+            recurrence_stopped_date: "2026-01-10",
+          },
+        ],
+      }),
+      new Date(2026, 0, 1, 12),
+      20,
+    );
+
+    expect(
+      projection.events
+        .filter(event => event.kind === "transfer_out")
+        .map(event => event.date),
+    ).toEqual(["2026-01-03", "2026-01-10"]);
+    expect(projection.endingBalance).toBe(100);
+  });
+
+  test("routes salary to the configured account and deducts savings once", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 50 },
+        ],
+        salary: {
+          amount: 1000,
+          balance: 0,
+          last_deposit: "2026-01-01",
+          fixed: 1,
+          deposits_date: "Fixed date",
+          fixed_day: 15,
+          account_id: 2,
+        },
+        expenses: [
+          {
+            id: 1,
+            date: "2026-01-03",
+            name: "Bus savings",
+            value: 20,
+            kind: "savings",
+            is_savings: 1,
+            account_id: 1,
+          },
+          {
+            id: 2,
+            date: "2026-01-04",
+            name: "Bus fare from savings",
+            value: 5,
+            kind: "savings_use",
+            is_savings_withdrawal: 1,
+            account_id: 1,
+          },
+        ],
+      }),
+      new Date(2026, 0, 1, 12),
+      20,
+    );
+
+    expect(projection.events.find(event => event.source === "salary").account_id).toBe(2);
+    expect(
+      getAccountBalancesOnDate(
+        projection,
+        "2026-01-15",
+        new Date(2026, 0, 1, 12),
+      ).accounts.map(account => account.balance),
+    ).toEqual([80, 1050]);
+  });
+
   test("carries dated transactions forward and flags the first negative date", () => {
     const projection = getCashflowProjection(
       emptyData({
@@ -508,6 +667,12 @@ describe("subscription schedules", () => {
         expect(getSavingsAvailableAsOfDate([movement], "2026-10-02")).toBe(3000);
         expect(getSavingsAvailableAsOfDate([movement], "2026-11-01")).toBe(3000);
         expect(getSavingsAvailableAsOfDate([movement], "2026-11-02")).toBe(6000);
+        expect(
+          getSavingsAvailableAsOfDate(
+            [{ ...movement, savings_used: 1000 }],
+            "2026-11-02",
+          ),
+        ).toBe(5000);
       });
 
       test("respects inclusive end and stop dates for recurring savings", () => {

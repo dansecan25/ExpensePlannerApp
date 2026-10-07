@@ -85,6 +85,18 @@ subscriptions and participate in balances and projections.
 
 - Users can create and manage multiple accounts to keep balances separate.
 - Expenses and money variations can optionally be assigned to an account.
+- On first-time setup, choose the salary deposit account; the default is Main
+  account. Settings can change this destination immediately or from a selected
+  effective date, alongside salary amount and deposit schedule changes.
+- Account transfers have a date, source, destination, amount, and optional
+  description. Validate the source account's projected available balance on the
+  transfer date and reject transfers that exceed it. A transfer decreases the
+  source account and increases the destination by the same amount, leaving the
+  combined balance unchanged. Transfers may repeat weekly, monthly, or yearly
+  with an optional end date. Stopping a recurrence preserves its scheduled
+  occurrences through the stop date and cannot be undone; create a new transfer
+  to resume. Deleting a transfer removes its record and all derived occurrences,
+  including historical occurrences.
 - Tags group related expenses and subscriptions. Users can search/select an
   existing tag or type a new tag name and press Enter to create it. New tags
   support a preset or hexadecimal color.
@@ -109,19 +121,19 @@ deduction, reject it when the resulting projection would put the user in a
 negative balance within the next six months.
 
 The Balance view shows the total saved amount and a scrollable savings section.
-Expenses marked as savings are listed and totaled as saved money. Savings entries
-are grouped by their tag so users can track separate purposes (for example,
-different savings goals).
+Savings is a distinct transaction type, not a deduction checkbox. A savings
+contribution is deducted from its selected account and reserved as savings.
+Savings entries are grouped by their tag so users can track separate purposes
+(for example, different savings goals).
 
-The Savings Movements screen lists savings additions by group, lets users record
-an expense against a group, and supports deleting an individual addition or a
-group. Users can create a savings group from this screen. Deleting a group
-removes its tag from savings additions but preserves the movements as untagged
-savings.
-Show savings available as of today, counting a recurring contribution only on
-its scheduled occurrence date and reducing the saved amount by expenses
-explicitly recorded from a savings group. Also list recurring savings and their
-assigned accounts.
+The Savings Movements screen lists savings additions by group and account,
+allows users to record how much of a contribution has been used, and supports
+deleting a mistaken contribution or a group. Users can create a savings group
+from this screen. Deleting a group removes its tag from savings additions but
+preserves the movements as untagged savings. Show savings available as of today,
+counting a recurring contribution only on its scheduled occurrence date and
+reducing the saved amount by recorded usage. Also list recurring savings and
+their assigned accounts.
 
 At the end of the Balance view, provide a movement dashboard with all-year
 (current rolling window) as the default date range: from today's date one year
@@ -199,8 +211,9 @@ Display dates throughout the app as `DD MON YYYY` (for example, `07 Oct 2026`).
 Keep editable date inputs in their existing `YYYY-MM-DD` format.
 
 Existing installations should be migrated in place when adding finance columns and
-tables. Keep legacy expense rows readable as deductions, and treat their date as the
-user-local calendar date even when the stored value includes an ISO timestamp.
+tables. Keep legacy expense rows readable as deductions, preserve legacy savings
+contributions/withdrawals, and treat their date as the user-local calendar date
+even when the stored value includes an ISO timestamp.
 
 ## Reference UI assets
 

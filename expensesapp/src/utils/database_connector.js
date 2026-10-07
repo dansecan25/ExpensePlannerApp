@@ -66,6 +66,7 @@ const DATABASE_TABLES = [
   "tags",
   "months_expenses",
   "subscriptions",
+  "account_transfers",
   "expense_tags",
   "yearly_expenses",
 ];
@@ -113,6 +114,7 @@ export const initDatabase = async () => {
           fixed BOOL DEFAULT 1,
           deposits_date TEXT,
           fixed_day INTEGER,
+          account_id INTEGER,
           savings_mode_enabled INTEGER NOT NULL DEFAULT 0,
           savings_mode_amount REAL NOT NULL DEFAULT 0,
           setup_complete INTEGER NOT NULL DEFAULT 1
@@ -127,7 +129,8 @@ export const initDatabase = async () => {
           amount REAL,
           income_type TEXT NOT NULL,
           deposits_date TEXT,
-          fixed_day INTEGER
+          fixed_day INTEGER,
+          account_id INTEGER
         );
       `,
     },
@@ -223,6 +226,25 @@ export const initDatabase = async () => {
     },
     {
       query: `
+        CREATE TABLE IF NOT EXISTS account_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          from_account_id INTEGER NOT NULL,
+          to_account_id INTEGER NOT NULL,
+          amount REAL NOT NULL,
+          description TEXT,
+          recurrence_frequency TEXT,
+          recurrence_end_date TEXT,
+          recurrence_active INTEGER NOT NULL DEFAULT 1,
+          recurrence_stopped_date TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (from_account_id) REFERENCES accounts(id),
+          FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+        );
+      `,
+    },
+    {
+      query: `
         CREATE TABLE IF NOT EXISTS yearly_expenses (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           year INTEGER NOT NULL UNIQUE
@@ -237,6 +259,7 @@ export const initDatabase = async () => {
   await ensureColumn(db, "salary", "fixed", "BOOL DEFAULT 1");
   await ensureColumn(db, "salary", "deposits_date", "TEXT");
   await ensureColumn(db, "salary", "fixed_day", "INTEGER");
+  await ensureColumn(db, "salary", "account_id", "INTEGER");
   await ensureColumn(db, "salary", "savings_mode_enabled", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "salary", "savings_mode_amount", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(db, "salary", "setup_complete", "INTEGER NOT NULL DEFAULT 1");
@@ -252,6 +275,17 @@ export const initDatabase = async () => {
   await ensureColumn(db, "months_expenses", "is_savings_withdrawal", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "created_at", "TEXT");
   await ensureColumn(db, "months_expenses", "account_id", "INTEGER");
+  await ensureColumn(db, "months_expenses", "savings_used", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(db, "salary_schedule_changes", "account_id", "INTEGER");
+  await ensureColumn(db, "account_transfers", "recurrence_frequency", "TEXT");
+  await ensureColumn(db, "account_transfers", "recurrence_end_date", "TEXT");
+  await ensureColumn(
+    db,
+    "account_transfers",
+    "recurrence_active",
+    "INTEGER NOT NULL DEFAULT 1",
+  );
+  await ensureColumn(db, "account_transfers", "recurrence_stopped_date", "TEXT");
   await db.execute(`
     UPDATE months_expenses
     SET created_at = CURRENT_TIMESTAMP
@@ -259,6 +293,28 @@ export const initDatabase = async () => {
   `);
   const defaultAccountId = await getDefaultAccountId(db);
   if (defaultAccountId !== null) {
+    await db.executeAsync(
+      "UPDATE salary SET account_id = ? WHERE account_id IS NULL;",
+      [defaultAccountId],
+    );
+    await db.executeAsync(
+      `UPDATE salary_schedule_changes
+       SET account_id = (
+         SELECT account_id FROM salary ORDER BY id LIMIT 1
+       )
+       WHERE account_id IS NULL;`,
+    );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = ? WHERE account_id IS NULL;",
+      [defaultAccountId],
+    );
+    await db.executeAsync(
+      `UPDATE salary_schedule_changes
+       SET account_id = (
+         SELECT account_id FROM salary ORDER BY id LIMIT 1
+       )
+       WHERE account_id IS NULL;`,
+    );
     await db.executeAsync(
       "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
       [defaultAccountId],
@@ -275,6 +331,7 @@ export const resetDatabase = async () => {
   try {
     await db.executeBatchAsync([
       { query: "DROP TABLE IF EXISTS expense_tags;" },
+      { query: "DROP TABLE IF EXISTS account_transfers;" },
       { query: "DROP TABLE IF EXISTS subscriptions;" },
       { query: "DROP TABLE IF EXISTS salary_schedule_changes;" },
       { query: "DROP TABLE IF EXISTS months_expenses;" },
@@ -309,13 +366,25 @@ export const addSalary = async ({
   fixed,
   deposits_date,
   fixed_day,
+  salaryAccountName = "Main account",
 }) => {
   const db = getDB();
   const date = getLocalDate();
+  await db.executeAsync(
+    "INSERT OR IGNORE INTO accounts (name, color, opening_balance) VALUES (?, ?, 0);",
+    [salaryAccountName.trim() || "Main account", "#4261a0"],
+  );
+  const salaryAccountResult = await db.execute(
+    "SELECT id FROM accounts WHERE name = ? LIMIT 1;",
+    [salaryAccountName.trim() || "Main account"],
+  );
+  const salaryAccountId = salaryAccountResult.rows.length
+    ? salaryAccountResult.rows.item(0).id
+    : await getDefaultAccountId(db);
   const result = await db.executeAsync(
     `INSERT INTO salary
-      (amount, balance, last_deposit, currency, fixed, deposits_date, fixed_day, setup_complete)
-     SELECT ?, ?, ?, ?, ?, ?, ?, 0
+      (amount, balance, last_deposit, currency, fixed, deposits_date, fixed_day, account_id, setup_complete)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0
      WHERE NOT EXISTS (SELECT 1 FROM salary);`,
     [
       Number.isFinite(amount) ? amount : null,
@@ -325,6 +394,7 @@ export const addSalary = async ({
       fixed ? 1 : 0,
       deposits_date || null,
       fixed_day ?? null,
+      salaryAccountId,
     ],
   );
   await db.executeAsync(
@@ -388,6 +458,7 @@ export const saveSalaryScheduleChange = async ({
   incomeType,
   depositsDate,
   fixedDay,
+  accountId,
 }) => {
   if (!isValidLocalDate(effectiveDate)) {
     throw new Error("Choose a valid salary change effective date.");
@@ -420,8 +491,8 @@ export const saveSalaryScheduleChange = async ({
     },
     {
       query: `INSERT INTO salary_schedule_changes
-        (effective_date, amount, income_type, deposits_date, fixed_day)
-        VALUES (?, ?, ?, ?, ?);`,
+        (effective_date, amount, income_type, deposits_date, fixed_day, account_id)
+        VALUES (?, ?, ?, ?, ?, ?);`,
       params: [
         effectiveDate,
         incomeType === "fixed" ? numericAmount : null,
@@ -430,6 +501,7 @@ export const saveSalaryScheduleChange = async ({
         incomeType === "fixed" && depositsDate === "Fixed date"
           ? Number(fixedDay)
           : null,
+        accountId ?? null,
       ],
     },
   ]);
@@ -515,12 +587,43 @@ export const deleteAccount = async id => {
   const isMainAccount =
     mainResult.rows.length && Number(mainResult.rows.item(0).id) === Number(id);
   if (isMainAccount) {
+    const fallback = await db.execute(
+      "SELECT id FROM accounts WHERE id != ? ORDER BY id LIMIT 1;",
+      [id],
+    );
+    if (fallback.rows.length) {
+      const fallbackId = fallback.rows.item(0).id;
+      await db.executeAsync(
+        "UPDATE account_transfers SET from_account_id = ? WHERE from_account_id = ?;",
+        [fallbackId, id],
+      );
+      await db.executeAsync(
+        "UPDATE account_transfers SET to_account_id = ? WHERE to_account_id = ?;",
+        [fallbackId, id],
+      );
+      await db.executeAsync(
+        "DELETE FROM account_transfers WHERE from_account_id = to_account_id;",
+      );
+    } else {
+      await db.executeAsync(
+        "DELETE FROM account_transfers WHERE from_account_id = ? OR to_account_id = ?;",
+        [id, id],
+      );
+    }
     await db.executeAsync(
       "UPDATE months_expenses SET account_id = NULL WHERE account_id = ?;",
       [id],
     );
     await db.executeAsync(
       "UPDATE subscriptions SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync(
+      "UPDATE salary_schedule_changes SET account_id = NULL WHERE account_id = ?;",
       [id],
     );
     await db.executeAsync("DELETE FROM accounts WHERE id = ?;", [id]);
@@ -535,6 +638,14 @@ export const deleteAccount = async id => {
     );
     await db.executeAsync(
       "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE salary_schedule_changes SET account_id = ? WHERE account_id IS NULL;",
       [replacementMainId],
     );
     return;
@@ -561,6 +672,25 @@ export const deleteAccount = async id => {
       "UPDATE subscriptions SET account_id = ? WHERE account_id = ?;",
       [remainingId, id],
     );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = ? WHERE account_id = ?;",
+      [remainingId, id],
+    );
+    await db.executeAsync(
+      "UPDATE salary_schedule_changes SET account_id = ? WHERE account_id = ?;",
+      [remainingId, id],
+    );
+    await db.executeAsync(
+      "UPDATE account_transfers SET from_account_id = ? WHERE from_account_id = ?;",
+      [remainingId, id],
+    );
+    await db.executeAsync(
+      "UPDATE account_transfers SET to_account_id = ? WHERE to_account_id = ?;",
+      [remainingId, id],
+    );
+    await db.executeAsync(
+      "DELETE FROM account_transfers WHERE from_account_id = to_account_id;",
+    );
   } else {
     await db.executeAsync(
       `UPDATE salary
@@ -580,6 +710,18 @@ export const deleteAccount = async id => {
       "UPDATE subscriptions SET account_id = NULL WHERE account_id = ?;",
       [id],
     );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync(
+      "UPDATE salary_schedule_changes SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync(
+      "DELETE FROM account_transfers WHERE from_account_id = ? OR to_account_id = ?;",
+      [id, id],
+    );
     await db.executeAsync("DELETE FROM accounts WHERE id = ?;", [id]);
     await db.executeAsync(
       "INSERT INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
@@ -592,6 +734,14 @@ export const deleteAccount = async id => {
     );
     await db.executeAsync(
       "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE salary SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE salary_schedule_changes SET account_id = ? WHERE account_id IS NULL;",
       [replacementMainId],
     );
     return;
@@ -665,8 +815,12 @@ export const insertExpense = async (
 ) => {
   const normalizedName = name.trim();
   const numericValue = Number(value);
+  const kind = options.kind || "expense";
   if (!normalizedName || !Number.isFinite(numericValue) || numericValue <= 0) {
     throw new Error("Enter an expense name and a positive amount.");
+  }
+  if (!["income", "expense", "savings", "savings_use"].includes(kind)) {
+    throw new Error("Choose a valid transaction type.");
   }
   if (!isValidLocalDate(date)) {
     throw new Error("Enter a valid transaction date.");
@@ -685,7 +839,7 @@ export const insertExpense = async (
   const recurrenceEndDate = options.recurrenceEndDate || null;
   if (
     recurrenceFrequency !== null &&
-    (options.kind === "income" ||
+    (kind === "income" ||
       !["weekly", "monthly", "yearly"].includes(recurrenceFrequency))
   ) {
     throw new Error("Choose a valid recurrence for a deduction.");
@@ -712,11 +866,11 @@ export const insertExpense = async (
       numericValue,
       numericInflatedValue,
       resolvedAccountId,
-      options.kind === "income" ? "income" : "expense",
-      options.isSavings ? 1 : 0,
+      kind,
+      kind === "savings" || options.isSavings ? 1 : 0,
       recurrenceFrequency,
       recurrenceEndDate,
-      options.kind !== "income" && options.isSavingsWithdrawal ? 1 : 0,
+      kind !== "income" && options.isSavingsWithdrawal ? 1 : 0,
     ],
   );
 
@@ -727,6 +881,22 @@ export const insertExpense = async (
     );
   }
   return result.insertId;
+};
+
+export const updateSavingsAmountUsed = async (expenseId, amountUsed) => {
+  const numericAmount = Number(amountUsed);
+  if (!Number.isInteger(Number(expenseId)) || !Number.isFinite(numericAmount) || numericAmount < 0) {
+    throw new Error("Enter a valid amount used from savings.");
+  }
+  const result = await getDB().executeAsync(
+    `UPDATE months_expenses
+     SET savings_used = ?
+     WHERE id = ? AND is_savings = 1;`,
+    [numericAmount, Number(expenseId)],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("The savings movement could not be found.");
+  }
 };
 
 export const deleteExpense = async id => {
@@ -925,6 +1095,93 @@ export const deleteSubscription = async id => {
   await getDB().executeAsync("DELETE FROM subscriptions WHERE id = ?;", [id]);
 };
 
+export const getAccountTransfers = async () => {
+  const result = await getDB().execute(
+    `SELECT t.*, source.name AS from_account_name, destination.name AS to_account_name
+     FROM account_transfers t
+     LEFT JOIN accounts source ON source.id = t.from_account_id
+     LEFT JOIN accounts destination ON destination.id = t.to_account_id
+     ORDER BY t.date DESC, t.id DESC;`,
+  );
+  return readRows(result);
+};
+
+export const createAccountTransfer = async ({
+  date,
+  fromAccountId,
+  toAccountId,
+  amount,
+  availableBalance,
+  recurrenceFrequency = null,
+  recurrenceEndDate = null,
+  description = "",
+}) => {
+  const numericAmount = Number(amount);
+  const numericAvailableBalance = Number(availableBalance);
+  if (
+    !isValidLocalDate(date) ||
+    !Number.isInteger(Number(fromAccountId)) ||
+    Number(fromAccountId) < 1 ||
+    !Number.isInteger(Number(toAccountId)) ||
+    Number(toAccountId) < 1 ||
+    Number(fromAccountId) === Number(toAccountId) ||
+    !Number.isFinite(numericAmount) ||
+    numericAmount <= 0 ||
+    !Number.isFinite(numericAvailableBalance) ||
+    numericAvailableBalance < numericAmount ||
+    (recurrenceFrequency !== null &&
+      !["weekly", "monthly", "yearly"].includes(recurrenceFrequency)) ||
+    (recurrenceEndDate !== null &&
+      (!isValidLocalDate(recurrenceEndDate) ||
+        recurrenceEndDate < date ||
+        recurrenceFrequency === null))
+  ) {
+    throw new Error(
+      "Choose a valid date, two different accounts, and an amount within the source account's available balance.",
+    );
+  }
+  const result = await getDB().executeAsync(
+    `INSERT INTO account_transfers
+      (date, from_account_id, to_account_id, amount, description,
+       recurrence_frequency, recurrence_end_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?);`,
+    [
+      date,
+      Number(fromAccountId),
+      Number(toAccountId),
+      numericAmount,
+      description.trim() || null,
+      recurrenceFrequency,
+      recurrenceEndDate,
+    ],
+  );
+  return result.insertId;
+};
+
+export const deleteAccountTransfer = async id => {
+  const result = await getDB().executeAsync(
+    "DELETE FROM account_transfers WHERE id = ?;",
+    [Number(id)],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("The account transfer could not be found.");
+  }
+};
+
+export const stopAccountTransferRecurrence = async id => {
+  const result = await getDB().executeAsync(
+    `UPDATE account_transfers
+     SET recurrence_active = 0, recurrence_stopped_date = ?
+     WHERE id = ?
+       AND recurrence_frequency IS NOT NULL
+       AND recurrence_active = 1;`,
+    [getLocalDate(), Number(id)],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("This recurring transfer is already stopped or no longer exists.");
+  }
+};
+
 export const getCashflowData = async () => {
   const [
     salary,
@@ -935,6 +1192,7 @@ export const getCashflowData = async () => {
     salaryChanges,
     salaryDeductions,
     otherTaxes,
+    accountTransfers,
   ] = await Promise.all([
     getSalaryRow(),
     getExpensesBy(),
@@ -946,6 +1204,7 @@ export const getCashflowData = async () => {
       "SELECT min_salary, max_salary, percentage FROM salary_deductions ORDER BY min_salary;",
     ),
     getDB().execute("SELECT name, percentage FROM other_taxes;"),
+    getAccountTransfers(),
   ]);
   return {
     salary,
@@ -956,6 +1215,7 @@ export const getCashflowData = async () => {
     salaryChanges,
     salaryDeductions: readRows(salaryDeductions),
     otherTaxes: readRows(otherTaxes),
+    accountTransfers,
   };
 };
 
@@ -985,10 +1245,13 @@ const validateDatabaseBackup = async backup => {
     throw new Error("This is not a supported Expense Planner database backup.");
   }
   const providedTables = Object.keys(backup.tables).sort();
-  const expectedTables = [...DATABASE_TABLES].sort();
+  const expectedTables = [...DATABASE_TABLES]
+    .filter(table => table !== "account_transfers")
+    .sort();
+  const allowedTables = [...DATABASE_TABLES].sort();
   if (
-    providedTables.length !== expectedTables.length ||
-    providedTables.some((table, index) => table !== expectedTables[index])
+    providedTables.some(table => !allowedTables.includes(table)) ||
+    expectedTables.some(table => !providedTables.includes(table))
   ) {
     throw new Error("The backup does not contain all expected database tables.");
   }
@@ -999,10 +1262,13 @@ const validateDatabaseBackup = async backup => {
     const columns = readRows(await db.execute(`PRAGMA table_info("${table}");`));
     const columnNames = new Set(columns.map(column => column.name));
     columnsByTable.set(table, columnNames);
-    if (!Array.isArray(backup.tables[table])) {
+    if (
+      backup.tables[table] !== undefined &&
+      !Array.isArray(backup.tables[table])
+    ) {
       throw new Error(`The backup data for "${table}" is invalid.`);
     }
-    for (const row of backup.tables[table]) {
+    for (const row of backup.tables[table] || []) {
       if (!row || typeof row !== "object" || Array.isArray(row)) {
         throw new Error(`The backup contains an invalid row in "${table}".`);
       }
@@ -1054,7 +1320,7 @@ export const replaceDatabaseFromBackup = async backupContent => {
 
     for (const table of DATABASE_TABLES) {
       const allowedColumns = columnsByTable.get(table);
-      for (const row of backup.tables[table]) {
+      for (const row of backup.tables[table] || []) {
         const entries = Object.entries(row).filter(([column]) =>
           allowedColumns.has(column),
         );
