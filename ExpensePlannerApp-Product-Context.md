@@ -72,6 +72,14 @@ date. Saved data includes the date.
 Money variations provide a more general transaction entry for any past, present,
 or future date. A variation can be income received (increases balance) or a
 deduction (purchase, subscription charge, or other outflow; decreases balance).
+Deduction forms may mark an expense as recurring weekly, monthly, or yearly.
+The selected date is the first occurrence. Later monthly or yearly occurrences
+clamp to the final valid day of a shorter month (for example, the 30th becomes
+the 28th or 29th in February), while subsequent months continue using the
+original day where possible. A recurrence can end on an optional date or be
+stopped from Money variations. The original deduction remains in history when
+future recurrence is stopped. Recurring deductions are independent of
+subscriptions and participate in balances and projections.
 
 ## Accounts and tags
 
@@ -104,6 +112,15 @@ The Balance view shows the total saved amount and a scrollable savings section.
 Expenses marked as savings are listed and totaled as saved money. Savings entries
 are grouped by their tag so users can track separate purposes (for example,
 different savings goals).
+
+The Savings Movements screen lists savings additions by group, lets users record
+an expense against a group, and supports deleting an individual addition or a
+group. Deleting a group removes its tag from savings additions but preserves the
+movements as untagged savings.
+Show savings available as of today, counting a recurring contribution only on
+its scheduled occurrence date and reducing the saved amount by expenses
+explicitly recorded from a savings group. Also list recurring savings and their
+assigned accounts.
 
 At the end of the Balance view, provide a movement dashboard with all-year
 (current year) as the default date range, a month selector, and a custom date range.

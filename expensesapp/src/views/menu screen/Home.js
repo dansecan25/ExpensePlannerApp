@@ -98,13 +98,44 @@ export default function HomeScreen({ navigation }) {
           kind: "income",
           isScheduled: true,
         }));
+      const scheduledRecurringDeductions = projection.events
+        .filter(
+          event =>
+            event.recurring_deduction &&
+            event.date >= monthStart &&
+            event.date <= monthEnd,
+        )
+        .map(event => ({
+          id: `recurring-deduction-${event.source_expense_id}-${event.date}`,
+          date: event.date,
+          name: event.name,
+          value: Number(event.amount),
+          inflated_value: event.inflated_value,
+          kind: "expense",
+          recurringDeduction: true,
+          isScheduled: true,
+        }))
+        .filter(
+          scheduled =>
+            !monthRows.some(
+              transaction =>
+                transaction.kind === "expense" &&
+                transaction.date.slice(0, 10) === scheduled.date &&
+                transaction.name.trim().toLowerCase() ===
+                  scheduled.name.trim().toLowerCase(),
+            ),
+        );
       setTodayExpenses([
         ...todayRows,
         ...scheduledExpenses.filter(expense => expense.date === today),
+        ...scheduledRecurringDeductions.filter(
+          expense => expense.date === today,
+        ),
       ]);
       setMonthExpenses([
         ...monthRows,
         ...scheduledExpenses,
+        ...scheduledRecurringDeductions,
         ...scheduledSalary,
       ]);
       setAvailableBeforePayment(balanceBeforePayment);
@@ -135,7 +166,11 @@ export default function HomeScreen({ navigation }) {
       expense.kind === "income"
         ? expense.value
         : expense.inflated_value ?? expense.value;
-    return `${prefix}${expense.name} · ${formatMoney(amount, currency)}`;
+    const recurringLabel =
+      expense.recurringDeduction || expense.recurrence_frequency
+        ? " · Recurring"
+        : "";
+    return `${prefix}${expense.name}${recurringLabel} · ${formatMoney(amount, currency)}`;
   });
   const monthExpenseRows = monthExpenses.filter(
     expense => expense.kind !== "income",
@@ -158,7 +193,9 @@ export default function HomeScreen({ navigation }) {
         : expense.inflated_value ?? expense.value;
       const movementLabel = expense.subscription
         ? `${expense.name} · Subscription`
-        : expense.name;
+        : expense.recurringDeduction || expense.recurrence_frequency
+          ? `${expense.name} · Recurring`
+          : expense.name;
       return `${date} · ${isIncome ? "+" : "-"}${movementLabel} · ${formatMoney(
         amount,
         currency,

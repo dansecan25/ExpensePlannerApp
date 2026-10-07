@@ -16,6 +16,7 @@ import ExpenseGroupsScreen from "./menu screen/Expenses by groups";
 import MoneyVariationsScreen from "./menu screen/Money variations";
 import SubscriptionsScreen from "./menu screen/Subscriptions";
 import BalanceScreen from "./menu screen/Balance";
+import SavingsMovementsScreen from "./menu screen/Savings Movements";
 import SettingsScreen from "./menu screen/Settings";
 
 const menuOptions = [
@@ -25,6 +26,7 @@ const menuOptions = [
   { id: "VARIATIONS", label: "Money variations" },
   { id: "SUBSCRIPTIONS", label: "Subscriptions" },
   { id: "BALANCE", label: "Balance" },
+  { id: "SAVINGS_MOVEMENTS", label: "Savings Movements" },
   { id: "SETTINGS", label: "Settings" },
 ];
 
@@ -70,6 +72,9 @@ export default function MenuScreens({ navigation }) {
     }
     if (activeScreen === "BALANCE") {
       return <BalanceScreen />;
+    }
+    if (activeScreen === "SAVINGS_MOVEMENTS") {
+      return <SavingsMovementsScreen navigation={navigation} />;
     }
     return <HomeScreen navigation={navigation} />;
   };

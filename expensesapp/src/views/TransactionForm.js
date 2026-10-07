@@ -26,7 +26,13 @@ import {
 } from "../utils/database_connector";
 import { wouldGoNegativeWithinSixMonths } from "../utils/financeCalculations";
 
-const TransactionForm = ({ navigation, mode = "today" }) => {
+const TransactionForm = ({
+  navigation,
+  mode = "today",
+  initialTagId = null,
+  initialTagName = "",
+  initialSavingsWithdrawal = false,
+}) => {
   const isVariation = mode === "variation";
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -36,14 +42,17 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
   const [accounts, setAccounts] = useState([]);
   const [tags, setTags] = useState([]);
   const [accountId, setAccountId] = useState(null);
-  const [tagId, setTagId] = useState(null);
-  const [tagQuery, setTagQuery] = useState("");
+  const [tagId, setTagId] = useState(initialTagId);
+  const [tagQuery, setTagQuery] = useState(initialTagName);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [tagColorOpen, setTagColorOpen] = useState(false);
   const [tagColor, setTagColor] = useState("#4261a0");
   const [isInflated, setIsInflated] = useState(false);
   const [inflatedAmount, setInflatedAmount] = useState("");
   const [isSavings, setIsSavings] = useState(false);
+  const [isRecurringDeduction, setIsRecurringDeduction] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState("monthly");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -159,7 +168,10 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
     Number.isFinite(numericAmount) &&
     numericAmount > 0 &&
     inflationValid &&
-    isValidLocalDate(date);
+    isValidLocalDate(date) &&
+    (!isRecurringDeduction ||
+      !recurrenceEndDate ||
+      (isValidLocalDate(recurrenceEndDate) && recurrenceEndDate >= date));
 
   const handleSave = async () => {
     if (!canSave) {
@@ -191,6 +203,13 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
             inflated_value: inflated,
             account_id: accountId,
             kind: "expense",
+            recurrence_frequency: isRecurringDeduction
+              ? recurrenceFrequency
+              : null,
+            recurrence_end_date:
+              isRecurringDeduction && recurrenceEndDate
+                ? recurrenceEndDate
+                : null,
           })
         ) {
           console.warn("[Transaction warning] Deduction blocked.", {
@@ -207,15 +226,34 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
         }
       }
 
+      let selectedTagIds = tagId === null ? [] : [tagId];
+      if (kind === "expense" && tagId === null && tagQuery.trim()) {
+        const savedTag = await createTag(tagQuery.trim(), tagColor);
+        selectedTagIds = [savedTag.id];
+      }
+
       await insertExpense(
         name,
         numericAmount,
         inflated,
-        tagId === null ? [] : [tagId],
+        selectedTagIds,
         accountId,
         date,
         description,
-        { kind, isSavings: kind === "expense" && isSavings },
+        {
+          kind,
+          isSavings: kind === "expense" && isSavings,
+          isSavingsWithdrawal:
+            kind === "expense" && initialSavingsWithdrawal,
+          recurrenceFrequency:
+            kind === "expense" && isRecurringDeduction
+              ? recurrenceFrequency
+              : null,
+          recurrenceEndDate:
+            kind === "expense" && isRecurringDeduction
+              ? recurrenceEndDate || null
+              : null,
+        },
       );
       navigation.goBack();
     } catch (error) {
@@ -259,6 +297,7 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
                   setKind("income");
                   setIsInflated(false);
                   setIsSavings(false);
+                  setIsRecurringDeduction(false);
                 }}
                 style={styles.choice}
                 text="Income"
@@ -320,6 +359,56 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
                 onToggle={() => setIsSavings(value => !value)}
               />
             </View>
+            <View style={styles.checkRow}>
+              <CustomText type="body4" text="Recurring deduction" />
+              <CustomCheckbox
+                checked={isRecurringDeduction}
+                label="Repeat"
+                onToggle={() =>
+                  setIsRecurringDeduction(value => !value)
+                }
+              />
+            </View>
+            {isRecurringDeduction && (
+              <>
+                <Field label="Repeat">
+                  <Dropdown
+                    data={[
+                      { label: "Weekly", value: "weekly" },
+                      { label: "Monthly", value: "monthly" },
+                      { label: "Yearly", value: "yearly" },
+                    ]}
+                    dropdownPosition="bottom"
+                    keyboardAvoiding={false}
+                    labelField="label"
+                    onChange={item => setRecurrenceFrequency(item.value)}
+                    placeholder="Repeat frequency"
+                    placeholderStyle={dropdownStyles.placeholderText}
+                    selectedTextStyle={dropdownStyles.selectedText}
+                    style={dropdownStyles.input}
+                    value={recurrenceFrequency}
+                    valueField="value"
+                  />
+                </Field>
+                <Field label="End date (optional, YYYY-MM-DD)">
+                  <CustomTextInput
+                    autoCapitalize="none"
+                    placeholder="Leave blank to repeat until stopped"
+                    setValue={setRecurrenceEndDate}
+                    value={recurrenceEndDate}
+                  />
+                </Field>
+                {recurrenceEndDate &&
+                  (!isValidLocalDate(recurrenceEndDate) ||
+                    recurrenceEndDate < date) && (
+                    <CustomText
+                      type="body5"
+                      text="Enter a valid end date on or after the first deduction date."
+                      style={styles.validationMessage}
+                    />
+                  )}
+              </>
+            )}
           </>
         )}
 
@@ -582,6 +671,10 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: 28,
+  },
+  validationMessage: {
+    marginTop: 6,
+    color: "#B54747",
   },
 });
 

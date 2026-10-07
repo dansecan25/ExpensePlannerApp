@@ -35,7 +35,13 @@ const isSalaryIncome = event =>
       .some(tag => tag.trim().toLowerCase() === "salary"));
 
 const movementType = event =>
-  event.subscription ? "subscription" : event.kind === "income" ? "income" : "deduction";
+  event.subscription
+    ? "subscription"
+    : event.recurring_deduction || event.recurrence_frequency
+      ? "recurring deduction"
+      : event.kind === "income"
+        ? "income"
+        : "deduction";
 
 export default function BalanceScreen() {
   const { data, error } = useFinanceData();
@@ -397,7 +403,7 @@ export default function BalanceScreen() {
                   >
                     <CustomText
                       type="body1"
-                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(amount, currency)}${type === "subscription" ? " · Subscription" : ""}`}
+                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(amount, currency)}${type === "subscription" ? " · Subscription" : type === "recurring deduction" ? " · Recurring deduction" : ""}`}
                       style={[
                         dashboardStyles.movementText,
                         highlightedSalary && dashboardStyles.salaryIncome,

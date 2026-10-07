@@ -4,7 +4,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import CustomText from "../../components/customText/customText";
-import { getExpensesBy } from "../../utils/database_connector";
+import {
+  getExpensesBy,
+  stopExpenseRecurrence,
+} from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 export default function MoneyVariationsScreen({ navigation }) {
@@ -54,6 +57,55 @@ export default function MoneyVariationsScreen({ navigation }) {
                   currency,
                 )}`,
               )}
+              {transaction.recurrence_frequency
+                ? dateOptions(
+                    Number(transaction.recurrence_active ?? 1) === 0
+                      ? `Repeat stopped · was ${transaction.recurrence_frequency}`
+                      : `Repeats ${transaction.recurrence_frequency}${
+                          transaction.recurrence_end_date
+                            ? ` until ${formatDisplayDate(transaction.recurrence_end_date)}`
+                            : ""
+                        }`,
+                  )
+                : null}
+              {transaction.recurrence_frequency &&
+              Number(transaction.recurrence_active ?? 1) === 1 ? (
+                <CustomButton
+                  onPress={() =>
+                    Alert.alert(
+                      "Stop recurring deduction",
+                      `Stop future ${transaction.recurrence_frequency} deductions for ${transaction.name}? The original deduction and occurrences already passed will remain in your history.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Stop repeating",
+                          style: "destructive",
+                          onPress: async () => {
+                            try {
+                              await stopExpenseRecurrence(transaction.id);
+                              await reloadTransactions();
+                            } catch (stopError) {
+                              console.error(
+                                "Failed to stop recurring deduction:",
+                                stopError,
+                              );
+                              Alert.alert(
+                                "Could not stop recurrence",
+                                stopError instanceof Error
+                                  ? stopError.message
+                                  : "Please try again.",
+                              );
+                            }
+                          },
+                        },
+                      ],
+                    )
+                  }
+                  style={styles.inlineButton}
+                  text="Stop repeating"
+                  type="secondary"
+                />
+              ) : null}
               {transaction.tags ? dateOptions(transaction.tags) : null}
               {transaction.description ? dateOptions(transaction.description) : null}
             </EntryCard>

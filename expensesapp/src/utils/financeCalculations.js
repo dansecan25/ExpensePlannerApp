@@ -1,4 +1,5 @@
 import { getLocalDate } from "./database_connector";
+import { getRecurringDeductionOccurrenceDates } from "./recurringDeductionSchedule";
 import { getSubscriptionOccurrenceDates } from "./subscriptionSchedule";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -246,6 +247,29 @@ const createSubscriptionEvents = (subscription, fromDate, throughDate) => {
   }));
 };
 
+const createRecurringDeductionEvents = (deduction, fromDate, throughDate) =>
+  getRecurringDeductionOccurrenceDates(
+    deduction,
+    fromDate,
+    throughDate,
+  ).map(date => ({
+    date,
+    amount: Number(deduction.amount ?? deduction.value),
+    inflated_value: deduction.inflated_value,
+    kind: "expense",
+    name: deduction.name,
+    account_id: deduction.account_id,
+    recurrence_frequency: deduction.recurrence_frequency,
+    recurrence_end_date: deduction.recurrence_end_date,
+    recurrence_active: deduction.recurrence_active,
+    recurrence_stopped_date: deduction.recurrence_stopped_date,
+    is_savings: deduction.is_savings,
+    tags: deduction.tags,
+    tag_ids: deduction.tag_ids,
+    recurring_deduction: true,
+    source_expense_id: deduction.id ?? null,
+  }));
+
 const signedAmount = event => {
   const amount = Number(event.amount ?? event.value ?? 0);
   if (event.kind === "income") {
@@ -259,11 +283,15 @@ const getEventType = event => {
   if (event.subscription) {
     return "subscription";
   }
+  if (event.recurring_deduction || event.recurrence_frequency) {
+    return "recurring deduction";
+  }
   return event.kind === "income" ? "income" : "deduction";
 };
 
 const makeEvents = (data, fromDate, throughDate, extra = {}) => {
   const endDate = getLocalDate(addDays(dateAtNoon(fromDate), throughDate));
+  const recurringStartDate = `${fromDate.slice(0, 7)}-01`;
   const subscriptionStartDate = `${fromDate.slice(0, 7)}-01`;
   const events = [
     ...data.expenses
@@ -272,6 +300,18 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
         return date <= endDate;
       })
       .map(event => ({ ...event, date: asDateString(event.date) })),
+    ...data.expenses.flatMap(event =>
+      event.kind === "income" ||
+      !event.recurrence_frequency ||
+      (Number(event.recurrence_active ?? 1) !== 1 &&
+        !event.recurrence_stopped_date)
+        ? []
+        : createRecurringDeductionEvents(
+            event,
+            recurringStartDate,
+            endDate,
+          ),
+    ),
     ...createIncomeEvents(data, endDate).filter(event => event.date <= endDate),
     ...data.subscriptions.flatMap(subscription =>
       createSubscriptionEvents(
@@ -284,7 +324,17 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
   if (extra.event) {
     const candidateDate = asDateString(extra.event.date);
     if (candidateDate <= endDate) {
-      events.push({ ...extra.event, date: candidateDate });
+      const candidate = { ...extra.event, date: candidateDate };
+      events.push(candidate);
+      if (candidate.recurrence_frequency) {
+        events.push(
+          ...createRecurringDeductionEvents(
+            candidate,
+            recurringStartDate,
+            endDate,
+          ),
+        );
+      }
     }
   }
   if (extra.subscription) {

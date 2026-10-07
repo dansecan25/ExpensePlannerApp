@@ -126,6 +126,11 @@ export const initDatabase = async () => {
           account_id INTEGER,
           kind TEXT NOT NULL DEFAULT 'expense',
           is_savings INTEGER NOT NULL DEFAULT 0,
+          recurrence_frequency TEXT,
+          recurrence_end_date TEXT,
+          recurrence_active INTEGER NOT NULL DEFAULT 1,
+          recurrence_stopped_date TEXT,
+          is_savings_withdrawal INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (account_id) REFERENCES accounts(id)
         );
@@ -183,6 +188,11 @@ export const initDatabase = async () => {
   await ensureColumn(db, "tags", "color", "TEXT NOT NULL DEFAULT '#4261a0'");
   await ensureColumn(db, "months_expenses", "kind", "TEXT NOT NULL DEFAULT 'expense'");
   await ensureColumn(db, "months_expenses", "is_savings", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "months_expenses", "recurrence_frequency", "TEXT");
+  await ensureColumn(db, "months_expenses", "recurrence_end_date", "TEXT");
+  await ensureColumn(db, "months_expenses", "recurrence_active", "INTEGER NOT NULL DEFAULT 1");
+  await ensureColumn(db, "months_expenses", "recurrence_stopped_date", "TEXT");
+  await ensureColumn(db, "months_expenses", "is_savings_withdrawal", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "created_at", "TEXT");
   await ensureColumn(db, "months_expenses", "account_id", "INTEGER");
   await db.execute(`
@@ -527,11 +537,29 @@ export const insertExpense = async (
   ) {
     throw new Error("The projected amount must be at least the transaction amount.");
   }
+  const recurrenceFrequency = options.recurrenceFrequency ?? null;
+  const recurrenceEndDate = options.recurrenceEndDate || null;
+  if (
+    recurrenceFrequency !== null &&
+    (options.kind === "income" ||
+      !["weekly", "monthly", "yearly"].includes(recurrenceFrequency))
+  ) {
+    throw new Error("Choose a valid recurrence for a deduction.");
+  }
+  if (
+    recurrenceEndDate !== null &&
+    (!isValidLocalDate(recurrenceEndDate) ||
+      recurrenceEndDate < date ||
+      recurrenceFrequency === null)
+  ) {
+    throw new Error("Choose a valid recurrence end date.");
+  }
   const db = getDB();
   const result = await db.executeAsync(
     `INSERT INTO months_expenses
-      (date, name, description, value, inflated_value, account_id, kind, is_savings)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+      (date, name, description, value, inflated_value, account_id, kind, is_savings,
+       recurrence_frequency, recurrence_end_date, is_savings_withdrawal)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     [
       date,
       normalizedName,
@@ -541,6 +569,9 @@ export const insertExpense = async (
       accountId ?? null,
       options.kind === "income" ? "income" : "expense",
       options.isSavings ? 1 : 0,
+      recurrenceFrequency,
+      recurrenceEndDate,
+      options.kind !== "income" && options.isSavingsWithdrawal ? 1 : 0,
     ],
   );
 
@@ -559,6 +590,51 @@ export const deleteExpense = async id => {
   await db.executeAsync("DELETE FROM months_expenses WHERE id = ?;", [id]);
 };
 
+export const stopExpenseRecurrence = async id => {
+  await getDB().executeAsync(
+    `UPDATE months_expenses
+     SET recurrence_active = 0, recurrence_stopped_date = ?
+     WHERE id = ?
+       AND recurrence_frequency IS NOT NULL
+       AND recurrence_active = 1;`,
+    [getLocalDate(), id],
+  );
+};
+
+export const deleteSavingsGroupTag = async tagId => {
+  const db = getDB();
+  await db.executeAsync(
+    `DELETE FROM expense_tags
+     WHERE tag_id = ?
+       AND expense_id IN (
+         SELECT id FROM months_expenses WHERE is_savings = 1
+       );`,
+    [tagId],
+  );
+  await db.executeAsync(
+    `DELETE FROM tags
+     WHERE id = ?
+       AND NOT EXISTS (SELECT 1 FROM expense_tags WHERE tag_id = ?)
+       AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE tag_id = ?);`,
+    [tagId, tagId, tagId],
+  );
+};
+
+export const assignSavingsMovementTag = async (expenseId, tagId) => {
+  const db = getDB();
+  const expense = await db.execute(
+    "SELECT id FROM months_expenses WHERE id = ? AND is_savings = 1;",
+    [expenseId],
+  );
+  if (!expense.rows.length) {
+    throw new Error("The savings movement could not be found.");
+  }
+  await db.executeAsync(
+    "INSERT OR IGNORE INTO expense_tags (expense_id, tag_id) VALUES (?, ?);",
+    [expenseId, tagId],
+  );
+};
+
 export const getExpensesBy = async ({
   name = null,
   minValue = null,
@@ -571,7 +647,8 @@ export const getExpensesBy = async ({
   isSavings = null,
 } = {}) => {
   let query = `
-    SELECT DISTINCT e.*, GROUP_CONCAT(t.name, ', ') AS tags
+    SELECT DISTINCT e.*, GROUP_CONCAT(t.name, ', ') AS tags,
+      GROUP_CONCAT(et.tag_id, ',') AS tag_ids
     FROM months_expenses e
     LEFT JOIN expense_tags et ON e.id = et.expense_id
     LEFT JOIN tags t ON et.tag_id = t.id

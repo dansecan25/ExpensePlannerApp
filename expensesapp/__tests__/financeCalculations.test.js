@@ -18,6 +18,12 @@ const {
 const {
   getSubscriptionOccurrenceDates,
 } = require("../src/utils/subscriptionSchedule");
+const {
+  getRecurringDeductionOccurrenceDates,
+} = require("../src/utils/recurringDeductionSchedule");
+const {
+  getSavingsAvailableAsOfDate,
+} = require("../src/utils/savingsCalculations");
 const { formatDisplayDate } = require("../src/utils/dateFormatting");
 
 describe("display date formatting", () => {
@@ -362,6 +368,178 @@ describe("subscription schedules", () => {
     expect(asDate(getPreLastAvailableDay(2026, 6))).toBe("2026-07-30");
     expect(asDate(getPreLastAvailableDay(2026, 11))).toBe("2026-12-30");
     expect(asDate(getPreLastAvailableDay(2026, 1))).toBe("2026-02-26");
+  });
+
+  describe("recurring deduction schedules", () => {
+    test("clamps monthly dates to month end and restores the original day", () => {
+      expect(
+        getRecurringDeductionOccurrenceDates(
+          {
+            date: "2026-01-30",
+            recurrence_frequency: "monthly",
+          },
+          "2026-01-01",
+          "2026-03-31",
+        ),
+      ).toEqual(["2026-02-28", "2026-03-30"]);
+    });
+
+    describe("savings availability", () => {
+      test("counts recurring savings only on or after each scheduled date", () => {
+        const movement = {
+          id: 7,
+          date: "2026-10-02",
+          value: 3000,
+          recurrence_frequency: "monthly",
+          recurrence_active: 1,
+        };
+
+        expect(getSavingsAvailableAsOfDate([movement], "2026-10-01")).toBe(0);
+        expect(getSavingsAvailableAsOfDate([movement], "2026-10-02")).toBe(3000);
+        expect(getSavingsAvailableAsOfDate([movement], "2026-11-01")).toBe(3000);
+        expect(getSavingsAvailableAsOfDate([movement], "2026-11-02")).toBe(6000);
+      });
+
+      test("respects inclusive end and stop dates for recurring savings", () => {
+        expect(
+          getSavingsAvailableAsOfDate(
+            [
+              {
+                date: "2026-10-02",
+                value: 3000,
+                recurrence_frequency: "monthly",
+                recurrence_end_date: "2026-11-02",
+              },
+            ],
+            "2026-12-02",
+          ),
+        ).toBe(6000);
+        expect(
+          getSavingsAvailableAsOfDate(
+            [
+              {
+                date: "2026-10-02",
+                value: 3000,
+                recurrence_frequency: "monthly",
+                recurrence_active: 0,
+                recurrence_stopped_date: "2026-11-01",
+              },
+            ],
+            "2026-12-02",
+          ),
+        ).toBe(3000);
+      });
+    });
+
+    test("stops generating occurrences after the inclusive end date", () => {
+      expect(
+        getRecurringDeductionOccurrenceDates(
+          {
+            date: "2026-10-02",
+            recurrence_frequency: "monthly",
+            recurrence_end_date: "2026-12-02",
+          },
+          "2026-10-01",
+          "2027-03-01",
+        ),
+      ).toEqual(["2026-11-02", "2026-12-02"]);
+    });
+
+    test("generates weekly and yearly occurrences from the selected date", () => {
+      expect(
+        getRecurringDeductionOccurrenceDates(
+          { date: "2026-10-02", recurrence_frequency: "weekly" },
+          "2026-10-01",
+          "2026-10-23",
+        ),
+      ).toEqual(["2026-10-09", "2026-10-16", "2026-10-23"]);
+      expect(
+        getRecurringDeductionOccurrenceDates(
+          { date: "2024-02-29", recurrence_frequency: "yearly" },
+          "2024-01-01",
+          "2027-12-31",
+        ),
+      ).toEqual(["2025-02-28", "2026-02-28", "2027-02-28"]);
+    });
+
+    test("includes future occurrences in cash-flow projection without duplicating the first deduction", () => {
+      const data = emptyData({
+        accounts: [{ id: 1, name: "Main account", opening_balance: 20800 }],
+        expenses: [
+          {
+            id: 10,
+            date: "2026-10-02",
+            name: "Rent",
+            value: 3000,
+            kind: "expense",
+            account_id: 1,
+            recurrence_frequency: "monthly",
+          },
+        ],
+      });
+      const projection = getCashflowProjection(
+        data,
+        new Date(2026, 9, 7, 12),
+        60,
+      );
+
+      expect(projection.todayBalance).toBe(17800);
+      expect(
+        projection.events
+          .filter(event => event.recurring_deduction)
+          .map(event => event.date),
+      ).toEqual(["2026-11-02", "2026-12-02"]);
+    });
+
+    test("checks every recurring occurrence in the six-month deduction guard", () => {
+      const today = new Date();
+      const todayString = [
+        today.getFullYear(),
+        String(today.getMonth() + 1).padStart(2, "0"),
+        String(today.getDate()).padStart(2, "0"),
+      ].join("-");
+
+      expect(
+        wouldGoNegativeWithinSixMonths(
+          emptyData({
+            accounts: [{ id: 1, name: "Main account", opening_balance: 6000 }],
+          }),
+          {
+            date: todayString,
+            name: "Rent",
+            amount: 3000,
+            account_id: 1,
+            kind: "expense",
+            recurrence_frequency: "monthly",
+          },
+        ),
+      ).toBe(true);
+    });
+
+    test("does not project recurring deductions after they have been halted", () => {
+      const projection = getCashflowProjection(
+        emptyData({
+          accounts: [{ id: 1, name: "Main account", opening_balance: 20800 }],
+          expenses: [
+            {
+              id: 10,
+              date: "2026-10-02",
+              name: "Rent",
+              value: 3000,
+              kind: "expense",
+              account_id: 1,
+              recurrence_frequency: "monthly",
+              recurrence_active: 0,
+            },
+          ],
+        }),
+        new Date(2026, 9, 7, 12),
+        60,
+      );
+
+      expect(projection.todayBalance).toBe(17800);
+      expect(projection.events.some(event => event.recurring_deduction)).toBe(false);
+    });
   });
 
   test("includes earlier subscription occurrences within the selected month", () => {
