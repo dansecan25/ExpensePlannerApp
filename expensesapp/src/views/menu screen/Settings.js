@@ -17,6 +17,7 @@ import {
   saveSalaryScheduleChange,
   updateSalarySavingsMode,
 } from "../../utils/database_connector";
+import { formatDisplayDate } from "../../utils/dateFormatting";
 import { Context } from "../../utils/store";
 
 const payDateOptions = [
@@ -124,7 +125,7 @@ export default function SettingsScreen({ navigation }) {
       await pullFromDB();
       Alert.alert(
         "Salary schedule saved",
-        `This change will apply ${effectiveMode === "immediate" ? "immediately" : `from ${selectedDate}`}.`,
+        `This change will apply ${effectiveMode === "immediate" ? "immediately" : `from ${formatDisplayDate(selectedDate)}`}.`,
       );
     } catch (error) {
       console.error("Failed to update salary:", error);

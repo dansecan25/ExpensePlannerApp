@@ -264,6 +264,7 @@ const getEventType = event => {
 
 const makeEvents = (data, fromDate, throughDate, extra = {}) => {
   const endDate = getLocalDate(addDays(dateAtNoon(fromDate), throughDate));
+  const subscriptionStartDate = `${fromDate.slice(0, 7)}-01`;
   const events = [
     ...data.expenses
       .filter(event => {
@@ -275,7 +276,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
     ...data.subscriptions.flatMap(subscription =>
       createSubscriptionEvents(
         subscription,
-        fromDate,
+        subscriptionStartDate,
         endDate,
       ),
     ),
@@ -290,7 +291,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
     events.push(
       ...createSubscriptionEvents(
         { ...extra.subscription, active: true },
-        fromDate,
+        subscriptionStartDate,
         endDate,
       ),
     );

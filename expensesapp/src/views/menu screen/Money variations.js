@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import CustomText from "../../components/customText/customText";
 import { getExpensesBy } from "../../utils/database_connector";
+import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 export default function MoneyVariationsScreen({ navigation }) {
   const { data, error } = useFinanceData();
@@ -46,7 +47,7 @@ export default function MoneyVariationsScreen({ navigation }) {
           {transactions.map(transaction => (
             <EntryCard key={transaction.id} title={transaction.name}>
               {dateOptions(
-                `${transaction.date.slice(0, 10)}  ·  ${
+                `${formatDisplayDate(transaction.date)}  ·  ${
                   transaction.kind === "income" ? "+" : "-"
                 }${money(
                   transaction.inflated_value ?? transaction.value,

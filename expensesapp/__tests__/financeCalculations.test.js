@@ -18,6 +18,18 @@ const {
 const {
   getSubscriptionOccurrenceDates,
 } = require("../src/utils/subscriptionSchedule");
+const { formatDisplayDate } = require("../src/utils/dateFormatting");
+
+describe("display date formatting", () => {
+  test("formats date values as DD MON YYYY without timezone shifts", () => {
+    expect(formatDisplayDate("2026-10-07")).toBe("07 Oct 2026");
+    expect(formatDisplayDate("2026-01-02T00:00:00.000Z")).toBe("02 Jan 2026");
+  });
+
+  test("leaves invalid date values unchanged", () => {
+    expect(formatDisplayDate("not-a-date")).toBe("not-a-date");
+  });
+});
 
 const emptyData = overrides => ({
   salary: null,
@@ -88,6 +100,56 @@ describe("cash-flow calculations", () => {
     );
 
     expect(projection.todayBalance).toBe(20800);
+  });
+
+  test("deducts subscription occurrences already due earlier this month", () => {
+    const data = emptyData({
+      accounts: [{ id: 1, name: "Main account", opening_balance: 20800 }],
+      subscriptions: [
+        {
+          id: 1,
+          name: "Crunchyroll",
+          amount: 3000,
+          start_date: "2026-10-02",
+          frequency: "monthly",
+          interval_days: null,
+          active: 1,
+          account_id: 1,
+        },
+      ],
+    });
+    const projection = getCashflowProjection(data, new Date(2026, 9, 7, 12), 60);
+
+    expect(projection.todayBalance).toBe(17800);
+    expect(projection.accountBalances[0].balance).toBe(17800);
+    expect(
+      projection.events.filter(event => event.subscription).map(event => event.date),
+    ).toEqual(["2026-10-02", "2026-11-02", "2026-12-02"]);
+  });
+
+  test("includes a past-due occurrence when checking a new subscription", () => {
+    const today = new Date();
+    const asOf = new Date(today.getFullYear(), today.getMonth(), 7, 12);
+    const year = asOf.getFullYear();
+    const month = String(asOf.getMonth() + 1).padStart(2, "0");
+    const subscription = {
+      name: "Subscription due earlier this month",
+      amount: 3000,
+      start_date: `${year}-${month}-02`,
+      frequency: "monthly",
+      interval_days: null,
+      active: true,
+      account_id: 1,
+    };
+
+    expect(
+      subscriptionWouldGoNegativeWithinSixMonths(
+        emptyData({
+          accounts: [{ id: 1, name: "Main account", opening_balance: 2500 }],
+        }),
+        subscription,
+      ),
+    ).toBe(true);
   });
 
   test("includes recorded income in the balance before the next salary payment", () => {

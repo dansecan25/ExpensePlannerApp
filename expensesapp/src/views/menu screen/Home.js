@@ -10,6 +10,7 @@ import {
   getExpensesForToday,
   getLocalDate,
 } from "../../utils/database_connector";
+import { formatDisplayDate } from "../../utils/dateFormatting";
 import {
   getBalanceBeforeDate,
   getCashflowProjection,
@@ -150,7 +151,7 @@ export default function HomeScreen({ navigation }) {
       return dateOrder || left.name.localeCompare(right.name);
     })
     .map(expense => {
-      const date = expense.date.slice(0, 10);
+      const date = formatDisplayDate(expense.date);
       const isIncome = expense.kind === "income";
       const amount = isIncome
         ? expense.value

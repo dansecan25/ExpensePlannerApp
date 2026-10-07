@@ -8,12 +8,8 @@ import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCu
 import CustomText from "../../components/customText/customText";
 import { getExpensesBy, getLocalDate, isValidLocalDate } from "../../utils/database_connector";
 import { getBalanceOnDate, getCashflowProjection } from "../../utils/financeCalculations";
+import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
-
-const formatDate = date => {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(year, month - 1, day, 12).toLocaleDateString();
-};
 
 const daysBetween = (fromDate, toDate) => {
   const [fromYear, fromMonth, fromDay] = fromDate.split("-").map(Number);
@@ -158,9 +154,11 @@ export default function BalanceScreen() {
       return;
     }
     lastAlertedMonth.current = firstZeroBalanceMonth.month;
-    const monthLabel = new Date(
-      `${firstZeroBalanceMonth.month}-01T12:00:00`,
-    ).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const [year, month] = firstZeroBalanceMonth.month.split("-").map(Number);
+    const monthLastDay = new Date(year, month, 0).getDate();
+    const monthEndDate = `${firstZeroBalanceMonth.month}-${String(
+      monthLastDay,
+    ).padStart(2, "0")}`;
     console.warn("[Balance warning] Projected monthly balance is zero or below.", {
       month: firstZeroBalanceMonth.month,
       monthEndBalance: firstZeroBalanceMonth.balance,
@@ -169,7 +167,7 @@ export default function BalanceScreen() {
     });
     Alert.alert(
       "Balance warning",
-      `Your projected balance is zero or below at the end of ${monthLabel}. Review your planned expenses and income.`,
+      `Your projected balance is zero or below at the end of ${formatDisplayDate(monthEndDate)}. Review your planned expenses and income.`,
     );
   }, [firstZeroBalanceMonth]);
 
@@ -268,7 +266,7 @@ export default function BalanceScreen() {
                 {entries.map(item => (
                   <View key={item.id} style={styles.savingItem}>
                     {dateOptions(
-                      `${item.date.slice(0, 10)} · ${item.name} · ${money(
+                      `${formatDisplayDate(item.date)} · ${item.name} · ${money(
                         item.value,
                         currency,
                       )}`,
@@ -399,7 +397,7 @@ export default function BalanceScreen() {
                   >
                     <CustomText
                       type="body1"
-                      text={`${event.date} · ${event.name} · ${sign}${money(amount, currency)}${type === "subscription" ? " · Subscription" : ""}`}
+                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(amount, currency)}${type === "subscription" ? " · Subscription" : ""}`}
                       style={[
                         dashboardStyles.movementText,
                         highlightedSalary && dashboardStyles.salaryIncome,
@@ -415,12 +413,12 @@ export default function BalanceScreen() {
             </ScrollView>
           )}
           {balanceAtRangeEnd !== null ? (
-            <EntryCard title={`Total available by ${formatDate(selectedDateRange.to)}`}>
+            <EntryCard title={`Total available by ${formatDisplayDate(selectedDateRange.to)}`}>
               {dateOptions(money(balanceAtRangeEnd, currency))}
             </EntryCard>
           ) : null}
           {selectedMovement && dashboardProjection ? (
-            <EntryCard title={`Total available by · ${formatDate(selectedMovement.date)}`}>
+            <EntryCard title={`Total available by · ${formatDisplayDate(selectedMovement.date)}`}>
               {dateOptions(
                 money(
                   getBalanceOnDate(

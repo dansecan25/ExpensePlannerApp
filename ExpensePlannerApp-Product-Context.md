@@ -73,12 +73,14 @@ Money variations provide a more general transaction entry for any past, present,
 or future date. A variation can be income received (increases balance) or a
 deduction (purchase, subscription charge, or other outflow; decreases balance).
 
-## Accounts and expense groups
+## Accounts and tags
 
 - Users can create and manage multiple accounts to keep balances separate.
 - Expenses and money variations can optionally be assigned to an account.
-- Tags group related expenses. The expense-groups view should let users inspect
-  spending by tag/group.
+- Tags group related expenses and subscriptions. Users can search/select an
+  existing tag or type a new tag name and press Enter to create it. New tags
+  support a preset or hexadecimal color.
+- The expenses-by-groups view reports spending grouped by tag.
 
 ## Subscriptions
 
@@ -144,13 +146,15 @@ balance on date = starting/current balance
 When projecting an expense that has an inflated value, use the inflated amount for
 available-balance planning; preserve the actual amount separately for reporting.
 Recurring subscriptions should be expanded to their scheduled occurrence dates
-within the projection window. Respect the configured salary cadence and
+within the projection window. If a subscription's scheduled occurrence falls
+earlier in the current month than today's date, include that missed occurrence
+when calculating today's available balance. Do not backfill occurrences from
+previous months as ledger transactions. Respect the configured salary cadence and
 Costa Rican deductions when calculating fixed-salary income. Variable salary is
 included only when the user records it (an estimate is not a guaranteed inflow).
 Treat six months and two years as calendar periods when checking the deduction guard
-and warning horizon. The recurring schedule is prospective: subscription entries
-affect projections from their configured start date and do not automatically create
-historical ledger entries.
+and warning horizon. Subscription entries affect projections from their configured
+start date and do not automatically create ledger entries.
 
 Settings also provides an optional Savings mode for fixed salary projections. When
 enabled, subtract the configured monthly amount from net projected salary before
@@ -164,6 +168,9 @@ expenses/money variations, subscription schedules, and savings classifications s
 they remain available after closing and reopening the app. Existing screens and
 components use React Native and the current shared text/button controls; extend
 those conventions where practical.
+
+Display dates throughout the app as `DD MON YYYY` (for example, `07 Oct 2026`).
+Keep editable date inputs in their existing `YYYY-MM-DD` format.
 
 Existing installations should be migrated in place when adding finance columns and
 tables. Keep legacy expense rows readable as deductions, and treat their date as the
