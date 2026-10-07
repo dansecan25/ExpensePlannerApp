@@ -9,9 +9,11 @@ const SalaryModel = types
     fixed: types.maybeNull(types.boolean),
     deposits_date: types.maybeNull(types.string),
     fixed_day: types.maybeNull(types.integer),
+    setupComplete: types.optional(types.boolean, false),
+    profileExists: types.optional(types.boolean, false),
   })
   .actions(self => ({
-    setSalaryModel(amount,balance,last_deposit, currency, fixed, depDate, fixedDay) {
+    setSalaryModel(amount,balance,last_deposit, currency, fixed, depDate, fixedDay, setupComplete = true) {
       self.amount = amount;
       self.currency = currency;
       self.currentAmount=balance;
@@ -19,6 +21,8 @@ const SalaryModel = types
       self.deposits_date = depDate;
       self.fixed_day = fixedDay;
       self.lastDeposit=last_deposit;
+      self.setupComplete = setupComplete;
+      self.profileExists = true;
     },
     clear() {
       self.amount = null;
@@ -28,6 +32,8 @@ const SalaryModel = types
       self.fixed_day = null;
       self.currentAmount=0;
       self.lastDeposit=null;
+      self.setupComplete=false;
+      self.profileExists=false;
     }
   }));
 

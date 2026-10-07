@@ -12,6 +12,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import CustomText from "../components/customText/customText.js";
 import MainScreen from "./MainScreen";
 import SettingsScreen from "./Settings.js";
+import {
+  AccountsScreen,
+  BalanceScreen,
+  ExpenseGroupsScreen,
+  SubscriptionsScreen,
+  TransactionsScreen,
+} from "./FinanceScreens";
 
 const menuOptions = [
   { id: "HOME", label: "Home" },
@@ -23,43 +30,12 @@ const menuOptions = [
   { id: "SETTINGS", label: "Settings" },
 ];
 
-const featureDescriptions = {
-  ACCOUNTS: "Create accounts and keep each account's balance separate.",
-  GROUPS: "Review expenses grouped by their tags and savings purposes.",
-  VARIATIONS:
-    "Record income or deductions for today, a past date, or a future date.",
-  SUBSCRIPTIONS:
-    "Manage recurring deductions on monthly, annual, or custom schedules.",
-  BALANCE:
-    "Review account balances, the combined balance, future projections, and savings.",
-};
-
 function MenuIcon() {
   return (
     <View style={styles.menuIcon} accessible={false}>
       <View style={styles.menuIconLine} />
       <View style={styles.menuIconLine} />
       <View style={styles.menuIconLine} />
-    </View>
-  );
-}
-
-function FeatureScreen({ screen }) {
-  const option = menuOptions.find(item => item.id === screen);
-
-  return (
-    <View style={styles.featureScreen}>
-      <CustomText type="header2" text={option.label} />
-      <CustomText
-        type="body3"
-        text={featureDescriptions[screen]}
-        style={styles.featureDescription}
-      />
-      <CustomText
-        type="body1"
-        text="Feature controls will be added in a future update."
-        style={styles.featureNote}
-      />
     </View>
   );
 }
@@ -79,10 +55,25 @@ export default function MenuScreens({ navigation }) {
     }
 
     if (activeScreen === "SETTINGS") {
-      return <SettingsScreen />;
+      return <SettingsScreen navigation={navigation} />;
     }
 
-    return <FeatureScreen screen={activeScreen} />;
+    if (activeScreen === "ACCOUNTS") {
+      return <AccountsScreen />;
+    }
+    if (activeScreen === "GROUPS") {
+      return <ExpenseGroupsScreen />;
+    }
+    if (activeScreen === "VARIATIONS") {
+      return <TransactionsScreen navigation={navigation} />;
+    }
+    if (activeScreen === "SUBSCRIPTIONS") {
+      return <SubscriptionsScreen />;
+    }
+    if (activeScreen === "BALANCE") {
+      return <BalanceScreen />;
+    }
+    return <MainScreen navigation={navigation} />;
   };
 
   return (
@@ -99,12 +90,9 @@ export default function MenuScreens({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.contentContainer}
-        style={styles.content}
-      >
+      <View style={styles.content}>
         {renderScreen()}
-      </ScrollView>
+      </View>
 
       <Modal
         animationType="fade"
@@ -186,10 +174,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  contentContainer: {
-    flexGrow: 1,
-    paddingBottom: 24,
-  },
   overlay: {
     flex: 1,
     flexDirection: "row",
@@ -222,16 +206,5 @@ const styles = StyleSheet.create({
   },
   drawerItemText: {
     color: "#000000",
-  },
-  featureScreen: {
-    flex: 1,
-    marginHorizontal: 16,
-    paddingTop: 20,
-  },
-  featureDescription: {
-    marginTop: 16,
-  },
-  featureNote: {
-    marginTop: 24,
   },
 });

@@ -6,6 +6,7 @@ const CustomTextInput=({
   setValue,
   placeholder = '',
   keyboardType = 'default',
+  autoCapitalize = 'sentences',
   style,
 })=>{
   return (
@@ -14,6 +15,8 @@ const CustomTextInput=({
       placeholder={placeholder}
       placeholderTextColor={"#a8a8a8ff"}
       onChangeText={(text) => setValue(text)}
+      keyboardType={keyboardType}
+      autoCapitalize={autoCapitalize}
       style={{...styles.input, ...style}}
     />
   );

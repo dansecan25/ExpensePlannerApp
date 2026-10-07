@@ -1,243 +1,219 @@
-import React, { useContext, useEffect, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import getColors from '../utils/color-picker';
-import CustomText from '../components/customText/customText';
-import CustomButton from '../components/customButton/customButton';
-import ScrollableTile from "../components/scrollableTile/scrollableTile.js"
-import { getExpensesForMonth, getExpensesForToday } from '../utils/database_connector';
-import { Context } from '../utils/store';
+import React, { useCallback, useEffect, useState } from "react";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
+
+import CustomButton from "../components/customButton/customButton";
+import CustomText from "../components/customText/customText";
+import ScrollableTile from "../components/scrollableTile/scrollableTile";
+import {
+  getCashflowData,
+  getExpensesForMonth,
+  getExpensesForToday,
+  getLocalDate,
+} from "../utils/database_connector";
+import { getCashflowProjection } from "../utils/financeCalculations";
+
+const formatMoney = (amount, currency) =>
+  `${Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency || ""}`.trim();
 
 export default function MainScreen({ navigation }) {
-    const {
-        salaryStore:{
-            amount,
-            currentAmount,
-            currency,
-            deposits_date,
-            fixed_day,
-        },
-    }=useContext(Context);
-    const [todayExpenses, setTodayExpenses] = useState([]);
-    const [monthExpenses, setMonthExpenses] = useState([]);
+  const [todayExpenses, setTodayExpenses] = useState([]);
+  const [monthExpenses, setMonthExpenses] = useState([]);
+  const [availableBeforePayment, setAvailableBeforePayment] = useState(0);
+  const [currency, setCurrency] = useState("");
+  const [hasFixedIncome, setHasFixedIncome] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
-    useEffect(() => {
-        const unsubscribe = navigation.addListener("focus", async () => {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth() + 1;
+  const loadHome = useCallback(async () => {
+    try {
+      const data = await getCashflowData();
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const projection = getCashflowProjection(data, now);
+      const today = getLocalDate(now);
+      const nextPayday = projection.events.find(
+        event =>
+          event.kind === "income" &&
+          event.source === "salary" &&
+          event.date > today,
+      )?.date;
+      const beforePaymentDate = nextPayday
+        ? new Date(`${nextPayday}T12:00:00`)
+        : null;
+      if (beforePaymentDate) {
+        beforePaymentDate.setDate(beforePaymentDate.getDate() - 1);
+      }
+      const beforePaymentKey = beforePaymentDate
+        ? getLocalDate(beforePaymentDate)
+        : today;
+      const balanceBeforePayment =
+        projection.balances.find(
+          entry => entry.date === beforePaymentKey,
+        )?.balance ?? projection.todayBalance;
+      const [todayRows, monthRows] = await Promise.all([
+        getExpensesForToday(),
+        getExpensesForMonth(year, month),
+      ]);
+      const scheduledExpenses = projection.events
+        .filter(event => event.subscription)
+        .map(event => ({
+          id: `subscription-${event.name}-${event.date}`,
+          date: event.date,
+          name: event.name,
+          value: event.amount,
+          kind: "expense",
+          isScheduled: true,
+        }));
+      setTodayExpenses([
+        ...todayRows,
+        ...scheduledExpenses.filter(expense => expense.date === today),
+      ]);
+      const monthKey = `${year}-${String(month).padStart(2, "0")}`;
+      setMonthExpenses([
+        ...monthRows,
+        ...scheduledExpenses.filter(expense =>
+          expense.date.startsWith(monthKey),
+        ),
+      ]);
+      setAvailableBeforePayment(balanceBeforePayment);
+      setCurrency(data.salary?.currency || "");
+      setHasFixedIncome(Boolean(data.salary?.fixed));
+      setLoadError(false);
+    } catch (error) {
+      console.error("Failed to load home cash flow:", error);
+      setLoadError(true);
+      Alert.alert("Could not update Home", "Please try again.");
+    }
+  }, []);
 
-            const today = await getExpensesForToday();
-            setTodayExpenses(today);
-            const monthData = await getExpensesForMonth(year, month);
-            setMonthExpenses(monthData);
-        });
+  useEffect(() => {
+    loadHome();
+    return navigation.addListener("focus", loadHome);
+  }, [loadHome, navigation]);
 
-        return unsubscribe;
-    }, [navigation]);
-
-
-    const getLastDayOfMonth = (year, month) => {
-        return new Date(year, month, 0); // month is 1-based
-    };
-    const adjustIfWeekend = (date) => {
-        const day = date.getDay(); // 0 = Sunday, 6 = Saturday
-
-        if (day === 0) { // Sunday
-            date.setDate(date.getDate() - 2);
-        } else if (day === 6) { // Saturday
-            date.setDate(date.getDate() - 1);
-        }
-
-        return date;
-    };
-
-    const getPreLastDayOfMonth = (year, month) => {
-        const lastDay = getLastDayOfMonth(year, month);
-        const preLast = new Date(lastDay);
-        preLast.setDate(preLast.getDate() - 1);
-        return adjustIfWeekend(preLast);
-    };
-
-    const calculateRemainingMonthMoney = (spentMonthList) => {
-        if (
-            amount == null ||
-            !deposits_date ||
-            !Array.isArray(spentMonthList)
-        ) {
-            return amount ?? 0;
-        }
-
-        const now = new Date();
-        const today = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate()
-        );
-
-        let endDate;
-
-        if (deposits_date === "Fixed date") {
-            if (fixed_day == null) return amount;
-
-            endDate = new Date(
-                now.getFullYear(),
-                now.getMonth(),
-                fixed_day
-            );
-            endDate = adjustIfWeekend(endDate);
-        }
-
-        else if (deposits_date === "Quincenal") {
-            const day = today.getDate();
-
-            if (day <= 15) {
-                endDate = new Date(now.getFullYear(), now.getMonth(), 15);
-            } else {
-                endDate = getLastDayOfMonth(
-                    now.getFullYear(),
-                    now.getMonth() + 1
-                );
-            }
-
-            endDate = adjustIfWeekend(endDate);
-        }
-
-        else if (deposits_date === "Pre last day of month") {
-            endDate = getPreLastDayOfMonth(
-                now.getFullYear(),
-                now.getMonth() + 1
-            );
-        }
-
-        else if (deposits_date === "Last day of month") {
-            endDate = getLastDayOfMonth(
-                now.getFullYear(),
-                now.getMonth() + 1
-            );
-            endDate = adjustIfWeekend(endDate);
-        }
-
-        else {
-            return amount;
-        }
-
-        const totalSpent = spentMonthList.reduce((sum, exp) => {
-            // Extract day from label (last segment)
-            const parts = exp.label.split(" - ");
-            const dayStr = parts[parts.length - 1];
-            const day = parseInt(dayStr, 10);
-
-            if (Number.isNaN(day)) return sum;
-
-            // Build expense date using current month/year
-            const now = new Date();
-            const expDate = new Date(
-                now.getFullYear(),
-                now.getMonth(),
-                day
-            );
-
-            if (expDate >= today && expDate <= endDate) {
-                return sum + (exp.inflatedValue ?? exp.value ?? 0);
-            }
-
-            return sum;
-        }, 0);
-
-
-        return currentAmount - totalSpent;
-    };
-
-
-
-
-
-
-    const spentToday = todayExpenses.map(exp => ({
-        id: exp.id,
-        name: exp.name,
-        value: exp.value,
-        inflatedValue: exp.inflated_value,
-        label: `${exp.name} - ${exp.inflated_value ?? exp.value} ${currency}`,
-    }));
-    const spentTodayLabels = spentToday.map(item => item.label);
-
-    const spentMonth = monthExpenses.map(exp => {
-        const dateObj = new Date(exp.date);
-        const day = String(dateObj.getDate()).padStart(2, "0");
-
-        return {
-            id: exp.id,
-            name: exp.name,
-            value: exp.value,
-            inflatedValue: exp.inflated_value,
-            label: `${exp.name} - ${exp.inflated_value ?? exp.value} ${currency} - ${day}`,
-        };
-    });
-
-    const spentMonthLabels = spentMonth.map(item => item.label);
-
-
-
-    
+  const monthLabel = new Date().toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const todayLabels = todayExpenses.map(expense => {
+    const prefix = expense.kind === "income" ? "+ " : "";
+    const amount =
+      expense.kind === "income"
+        ? expense.value
+        : expense.inflated_value ?? expense.value;
+    return `${prefix}${expense.name} · ${formatMoney(amount, currency)}`;
+  });
+  const monthExpenseRows = monthExpenses.filter(
+    expense => expense.kind !== "income",
+  );
+  const monthTotal = monthExpenseRows.reduce(
+    (sum, expense) =>
+      sum + Number(expense.inflated_value ?? expense.value ?? 0),
+    0,
+  );
+  const monthLabels = monthExpenseRows.map(expense => {
+    const date = expense.date.slice(0, 10);
+    const amount = expense.inflated_value ?? expense.value;
+    return `${date} · ${expense.name} · ${formatMoney(amount, currency)}`;
+  });
 
   return (
-    <View style={mainScreenStyles.container}>
-        <View>
-            <CustomText
-                type='header1'
-                text={`Expenses App`}
-            />
-            <CustomText
-                type='header3'
-                text={`Money available before next payment: ${calculateRemainingMonthMoney(spentMonth)} ${currency} `}
-            />
-            <View style={{flex:1,flexDirection:"row",marginTop:20,marginBottom:10}}>
-                <CustomText
-                    style={{flex:1,width:"100%"}}
-                    type='header2'
-                    text="Today's expenses"
-                />
-                <CustomButton
-                    style={mainScreenStyles.buttonAdd}
-                    text={"Add"}
-                    type='secondary'
-                    onPress={()=>{
-                        navigation.navigate("Add today expense")
-                    }}
-                />
-            </View>
-            <ScrollableTile
-                data={spentTodayLabels}
-            />
-            <View style={{flex:1,flexDirection:"row",marginTop:20,marginBottom:10}}>
-                <CustomText
-                    style={{flex:1,width:"100%"}}
-                    type='header2'
-                    text="This month's expenses"
-                />
-            </View>
-            <ScrollableTile
-                style={{marginBottom:60}}
-                data={spentMonthLabels}
-            />
-
+    <ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
+      <CustomText type="header1" text="Expenses App" />
+      <View style={styles.balanceCard}>
+        <CustomText
+          type="body3"
+          text={
+            hasFixedIncome
+              ? "Money available before next payment"
+              : "Current available balance"
+          }
+        />
+        <CustomText
+          type="header2"
+          text={formatMoney(availableBeforePayment, currency)}
+          style={styles.balanceValue}
+        />
+      </View>
+      <View style={styles.sectionHeading}>
+        <CustomText type="header2" text="Today's expenses" style={styles.heading} />
+        <CustomButton
+          onPress={() => navigation.navigate("Add today expense")}
+          text="Add"
+          type="secondary"
+        />
+      </View>
+      <ScrollableTile
+        data={todayLabels}
+        size={Math.max(120, Math.min(220, 44 + todayLabels.length * 34))}
+      />
+      <View style={styles.monthHeading}>
+        <View style={styles.heading}>
+          <CustomText type="header2" text="This month's expenses" />
+          <CustomText
+            type="body3"
+            text={`${monthLabel} · ${formatMoney(monthTotal, currency)}`}
+          />
         </View>
-    </View>
+      </View>
+      <ScrollableTile
+        data={monthLabels}
+        size={220}
+        style={styles.monthTile}
+      />
+      {loadError ? (
+        <CustomButton
+          onPress={loadHome}
+          style={styles.retryButton}
+          text="Retry loading Home"
+          type="secondary"
+        />
+      ) : null}
+    </ScrollView>
   );
 }
 
-const mainScreenStyles = StyleSheet.create({
-    container:{
-        flex:1,
-        marginTop:-10,
-        marginHorizontal:15,
-    },
-    headerText:{
-        fontSize:20,
-        color:getColors("header-01")
-    },
-    buttonAdd:{
-
-    }
+const styles = StyleSheet.create({
+  container: {
+    flexGrow: 1,
+    marginTop: 2,
+    marginHorizontal: 16,
+    paddingBottom: 24,
+  },
+  balanceCard: {
+    marginTop: 8,
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  balanceValue: {
+    marginTop: 4,
+  },
+  sectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 22,
+    marginBottom: 10,
+  },
+  heading: {
+    flex: 1,
+  },
+  monthHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 22,
+    marginBottom: 10,
+  },
+  monthTile: {
+    marginBottom: 20,
+  },
+  retryButton: {
+    marginTop: 12,
+  },
 });

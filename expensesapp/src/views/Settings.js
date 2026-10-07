@@ -7,7 +7,7 @@ import CustomText from "../components/customText/customText";
 import { resetDatabase } from "../utils/database_connector";
 import { Context } from "../utils/store";
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const { clear } = useContext(Context);
   const [isResetting, setIsResetting] = useState(false);
 
@@ -51,6 +51,19 @@ export default function SettingsScreen() {
           text="Manage your app configuration and saved data."
           style={styles.description}
         />
+        <View style={styles.section}>
+          <CustomText type="header3" text="Income deductions" />
+          <CustomText
+            type="body1"
+            text="Review your Hacienda brackets and other configured salary deductions."
+            style={styles.resetDescription}
+          />
+          <CustomButton
+            onPress={() => navigation.navigate("Taxes config")}
+            text="Configure deductions"
+            type="secondary"
+          />
+        </View>
         <View style={styles.resetSection}>
           <CustomText type="header3" text="Factory reset" />
           <CustomText
@@ -82,6 +95,12 @@ const styles = StyleSheet.create({
   },
   description: {
     marginTop: 12,
+  },
+  section: {
+    marginTop: 28,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   resetSection: {
     marginTop: 32,

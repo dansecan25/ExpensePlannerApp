@@ -16,6 +16,9 @@ balance. User data must persist between app launches in the local SQLite databas
      a quinquenal/every-15-days schedule, the last day of the month, a specific day
      of the month, or the pre-last available day of the month. The pre-last available
      day should account for weekends as the existing app does.
+     Treat the entered amount as gross monthly salary; apply configured progressive
+     income tax and other deductions, then split the estimated net pay across the two
+     monthly deposits for an every-15-days schedule.
    - **Variable income:** allow the user to record each month's income manually;
      income may depend on work/jobs that become available. A monthly estimate may
      be offered, but must not be treated as a guaranteed deposit.
@@ -23,7 +26,9 @@ balance. User data must persist between app launches in the local SQLite databas
    brackets and CCSS). Preserve the current configuration and allow it to be
    reviewed/configured.
 4. After setup, open Home. On later launches, open Home directly when setup is
-   already complete.
+   already complete. If the app is closed between income setup and deduction
+   configuration, resume at deduction configuration rather than creating another
+   profile or skipping setup.
 
 The app's existing typeface should not be changed.
 
@@ -127,6 +132,10 @@ Recurring subscriptions should be expanded to their scheduled occurrence dates
 within the projection window. Respect the configured salary cadence and
 Costa Rican deductions when calculating fixed-salary income. Variable salary is
 included only when the user records it (an estimate is not a guaranteed inflow).
+Treat six months and two years as calendar periods when checking the deduction guard
+and warning horizon. The recurring schedule is prospective: subscription entries
+affect projections from their configured start date and do not automatically create
+historical ledger entries.
 
 ## Persistence and implementation notes
 
@@ -135,6 +144,10 @@ expenses/money variations, subscription schedules, and savings classifications s
 they remain available after closing and reopening the app. Existing screens and
 components use React Native and the current shared text/button controls; extend
 those conventions where practical.
+
+Existing installations should be migrated in place when adding finance columns and
+tables. Keep legacy expense rows readable as deductions, and treat their date as the
+user-local calendar date even when the stored value includes an ISO timestamp.
 
 ## Reference UI assets
 

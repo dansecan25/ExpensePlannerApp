@@ -1,238 +1,229 @@
-import React, { useContext, useState } from "react";
-import { SafeAreaView } from 'react-native-safe-area-context';
-import CustomTextInput from '../components/customTextInput/customTextInput';
-import CustomText from '../components/customText/customText';
-import CustomCheckbox from '../components/customCheckbox/customCheckbox.js';
-import {dropdownStyles} from "../components/customDropdown/dropdownStylesCustom.js"
-import CustomButton from "../components/customButton/customButton.js"
-import { StyleSheet, View } from "react-native";
+import React, { useState } from "react";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Dropdown } from "react-native-element-dropdown";
-import { addSalary } from "../utils/database_connector.js";
-import {Context} from "../utils/store.js"
+
+import CustomButton from "../components/customButton/customButton";
+import CustomCheckbox from "../components/customCheckbox/customCheckbox";
+import CustomText from "../components/customText/customText";
+import CustomTextInput from "../components/customTextInput/customTextInput";
+import { dropdownStyles } from "../components/customDropdown/dropdownStylesCustom";
+import { addSalary } from "../utils/database_connector";
+
+const payDateOptions = [
+  { label: "Every 15 days", value: "Quincenal" },
+  { label: "Last day of month", value: "Last day of month" },
+  { label: "Pre-last available day of month", value: "Pre last day of month" },
+  { label: "Specific day of month", value: "Fixed date" },
+];
+
+const payDayOptions = Array.from({ length: 31 }, (_, index) => ({
+  label: String(index + 1),
+  value: index + 1,
+}));
+
+const isValidAmount = value =>
+  value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
 
 const WelcomeScreen = ({ navigation }) => {
-    const {
-        salaryStore:{
-            setSalaryModel,
-        }
-    }=useContext(Context);
-
-
-  const [typedValue, setTypedValue] = useState("");
   const [startingBalance, setStartingBalance] = useState("");
-  const [fixedSalary, setfixedSalary] = useState(true);
-  const [payDate, setPayDate]=useState("");
-  const [currency, setCurrency]=useState("");
-  const [payDay, setPayDay] = useState(1);
+  const [salaryAmount, setSalaryAmount] = useState("");
+  const [fixedSalary, setFixedSalary] = useState(true);
+  const [payDate, setPayDate] = useState(null);
+  const [currency, setCurrency] = useState("CRC");
+  const [payDay, setPayDay] = useState(15);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const payDateOptions=[
-    {label:"Last day of month"},
-    {label:"Pre last day of month"},
-    {label:"Quincenal"},
-    {label:"Fixed date"}
-  ]
-  const payDayOptions = Array.from({ length: 31 }, (_, i) => ({
-        label: String(i + 1),
-        value: i + 1,
-    }));
+  const canContinue =
+    isValidAmount(startingBalance) &&
+    currency.trim().length > 0 &&
+    (!fixedSalary ||
+      (isValidAmount(salaryAmount) &&
+        Number(salaryAmount) > 0 &&
+        payDate !== null &&
+        (payDate !== "Fixed date" || payDay !== null)));
+
+  const saveSetup = async () => {
+    setIsSaving(true);
+    try {
+      await addSalary({
+        amount: fixedSalary ? Number(salaryAmount) : null,
+        balance: Number(startingBalance),
+        currency: currency.trim(),
+        fixed: fixedSalary,
+        deposits_date: fixedSalary ? payDate : null,
+        fixed_day: fixedSalary && payDate === "Fixed date" ? payDay : null,
+      });
+      navigation.navigate("Taxes config");
+    } catch (error) {
+      console.error("Failed to save setup:", error);
+      Alert.alert(
+        "Could not save setup",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
-    <SafeAreaView style={{ flex: 1,paddingHorizontal:18,marginTop:30}}>
-      <View style={{ flex: 1 }}>
-         <CustomText
-            type="header2"
-            text="Welcome! "
-        />
-         <CustomText
-            type="header3"
-            style={{marginBottom:40}}
-            text="Please configure your experience before beginning "
-        />
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <CustomText type="header2" text="Welcome!" />
         <CustomText
-            type="body3"
-            text="Please enter a starting balance"
-            style={welcomeScreenStyles.text}
+          type="header3"
+          text="Set up your cash-flow planner"
+          style={styles.subtitle}
+        />
+
+        <CustomText
+          type="body3"
+          text="Starting balance"
+          style={styles.fieldLabel}
         />
         <CustomTextInput
-            value={startingBalance}
-            setValue={setStartingBalance}
-            placeholder="Balance"
-            keyboardType="numeric"
+          keyboardType="decimal-pad"
+          placeholder="Money currently available"
+          setValue={setStartingBalance}
+          value={startingBalance}
         />
-        <CustomText
-            type="body3"
-            text="Please select the income type you receive"
-        />
-        <View style={welcomeScreenStyles.checkboxRow}>
-            <CustomCheckbox
-                label="Fixed"
-                containerStyles={{width:"50%"}}
-                checked={fixedSalary}
-                onToggle={() => setfixedSalary(true)}
-            />
 
-            <CustomCheckbox
-                label="Variable"
-                containerStyles={{width:"50%"}}
-                checked={!fixedSalary}
-                onToggle={() => setfixedSalary(false)}
-            />
+        <CustomText
+          type="body3"
+          text="Income type"
+          style={styles.fieldLabel}
+        />
+        <View style={styles.choiceRow}>
+          <CustomCheckbox
+            checked={fixedSalary}
+            containerStyles={styles.choice}
+            label="Fixed"
+            onToggle={() => setFixedSalary(true)}
+          />
+          <CustomCheckbox
+            checked={!fixedSalary}
+            containerStyles={styles.choice}
+            label="Variable"
+            onToggle={() => setFixedSalary(false)}
+          />
         </View>
 
-        {fixedSalary===true ?
-            <View> 
+        {fixedSalary ? (
+          <View>
+            <CustomText
+              type="body3"
+              text="Gross monthly salary"
+              style={styles.fieldLabel}
+            />
+            <CustomTextInput
+              keyboardType="decimal-pad"
+              placeholder="Salary before deductions"
+              setValue={setSalaryAmount}
+              value={salaryAmount}
+            />
+            <CustomText
+              type="body3"
+              text="Pay schedule"
+              style={styles.fieldLabel}
+            />
+            <Dropdown
+              data={payDateOptions}
+              labelField="label"
+              maxHeight={240}
+              onChange={item => setPayDate(item.value)}
+              placeholder="Select pay schedule"
+              placeholderStyle={dropdownStyles.placeholderText}
+              selectedTextStyle={dropdownStyles.selectedText}
+              style={dropdownStyles.input}
+              value={payDate}
+              valueField="value"
+            />
+            {payDate === "Fixed date" && (
+              <>
                 <CustomText
-                    type="body3"
-                    text="Please enter your salary"
-                    style={welcomeScreenStyles.text}
+                  type="body3"
+                  text="Day of the month"
+                  style={styles.fieldLabel}
                 />
-                <CustomTextInput
-                    value={typedValue}
-                    setValue={setTypedValue}
-                    placeholder="Salary"
-                    keyboardType="numeric"
+                <Dropdown
+                  data={payDayOptions}
+                  labelField="label"
+                  maxHeight={240}
+                  onChange={item => setPayDay(item.value)}
+                  placeholder="Select a day"
+                  placeholderStyle={dropdownStyles.placeholderText}
+                  selectedTextStyle={dropdownStyles.selectedText}
+                  style={dropdownStyles.input}
+                  value={payDay}
+                  valueField="value"
                 />
+              </>
+            )}
+          </View>
+        ) : (
+          <CustomText
+            type="body1"
+            text="Record each payment when you receive it. Variable income is not assumed in future projections."
+            style={styles.hint}
+          />
+        )}
 
-                <CustomText
-                    type="body3"
-                    text="Please enter your currency"
-                    style={welcomeScreenStyles.text}
-                />
-                <CustomTextInput
-                    value={currency}
-                    setValue={setCurrency}
-                    placeholder="Currency (CRC,USD,$,etc)"
-                />
+        <CustomText
+          type="body3"
+          text="Currency"
+          style={styles.fieldLabel}
+        />
+        <CustomTextInput
+          autoCapitalize="characters"
+          placeholder="CRC, USD, etc."
+          setValue={setCurrency}
+          value={currency}
+        />
 
-                <CustomText
-                    type="body4"
-                    style={{...welcomeScreenStyles.text,marginBottom:0,marginTop:10}}
-                    text={`Select the salary deposit date from the options below`}
-                />
-                <CustomText
-                    type="body5"
-                    style={{...welcomeScreenStyles.text,marginTop:0,marginLeft:2}}
-                    text={`*If fixed date is selected, select the date also from the dropdown`}
-                />
-                <View>
-                    <Dropdown
-                    data={payDateOptions}
-                    value={payDate}
-                    placeholder="Select a pay date"
-
-                    labelField="label"
-                    valueField="label"
-
-                    onChange={(item) => {
-                        setPayDate(item.label);
-                    }}
-
-                    style={dropdownStyles.input}
-                    dropdownStyle={dropdownStyles.dropdown}
-                    itemContainerStyle={dropdownStyles.itemContainer}
-                    itemTextStyle={dropdownStyles.itemText}
-                    placeholderStyle={dropdownStyles.placeholderText}
-                    selectedTextStyle={dropdownStyles.selectedText}
-
-                    maxHeight={200} 
-                    />
-                </View>
-                {payDate === "Fixed date" && (
-                <View>
-                    <CustomText
-                    type="body4"
-                    style={{ ...welcomeScreenStyles.text, marginBottom: 0 }}
-                    text="Select the day of the month your salary is deposited"
-                    />
-
-                    <Dropdown
-                    data={payDayOptions}
-                    value={payDay}
-                    placeholder="Select a day"
-
-                    labelField="label"
-                    valueField="value"
-
-                    onChange={(item) => {
-                        setPayDay(item.value);
-                    }}
-
-                    style={dropdownStyles.input}
-                    dropdownStyle={dropdownStyles.dropdown}
-                    itemContainerStyle={dropdownStyles.itemContainer}
-                    itemTextStyle={dropdownStyles.itemText}
-                    placeholderStyle={dropdownStyles.placeholderText}
-                    selectedTextStyle={dropdownStyles.selectedText}
-
-                    maxHeight={200}
-                    />
-                </View>
-                )}
-
-                <View style={{marginTop:40}}>
-                    <CustomButton
-                        text="Set options"
-                        onPress={async ()=>{
-                            await addSalary({
-                                amount: parseFloat(typedValue),
-                                balance: parseFloat(startingBalance),
-                                currency: currency,
-                                fixed: fixedSalary,
-                                deposits_date: payDate,
-                                fixed_day: parseInt(payDay),
-                            });
-                            navigation.navigate("Taxes config");
-                        }}
-                        disabled={typedValue.length<=0 || currency.length<=0 || payDate==="" || 
-                            (payDate==="Fixed date"? payDay==="" : false) || startingBalance.length<=0
-                        }
-                    />
-                </View>
-
-            </View>:
-            <View>
-                <CustomText
-                    type="body3"
-                    text="Do you want to set an estimated amount per month?"
-                    style={welcomeScreenStyles.text}
-                />
-                <CustomTextInput
-                    value={typedValue}
-                    setValue={setTypedValue}
-                    placeholder="Salary"
-                    keyboardType="numeric"
-                />
-                <View style={{marginTop:40}}>
-                    <CustomButton
-                        text={typedValue.length===0 ? "Set salary later" : "Set variable salary"}
-                        onPress={()=>{
-                            console.log("Testing values to be stored on db:")
-                            console.log(payDate)
-                            console.log(typedValue)
-                            console.log(currency)
-                        }}
-                        disabled={startingBalance.length<=0}
-                        
-                    />
-                </View>
-
-
-            </View>
-        }
-      </View>
+        <CustomButton
+          disabled={!canContinue || isSaving}
+          onPress={saveSetup}
+          style={styles.continueButton}
+          text={isSaving ? "Saving..." : "Continue to deductions"}
+        />
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
-const welcomeScreenStyles = StyleSheet.create({
-    text:{
-        marginVertical:10,
-    },
-    checkboxRow: {
-        flexDirection: 'row',
-        marginVertical:20,
-        marginBottom:15
-    },
-})
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingHorizontal: 18,
+  },
+  content: {
+    paddingTop: 24,
+    paddingBottom: 40,
+  },
+  subtitle: {
+    marginBottom: 24,
+  },
+  fieldLabel: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  choiceRow: {
+    flexDirection: "row",
+    marginVertical: 12,
+  },
+  choice: {
+    width: "50%",
+  },
+  hint: {
+    marginTop: 16,
+  },
+  continueButton: {
+    marginTop: 32,
+  },
+});
 
 export default WelcomeScreen;

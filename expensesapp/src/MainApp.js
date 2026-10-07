@@ -1,8 +1,9 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { getSalaryRow, initDatabase } from './utils/database_connector.js';
+import { initDatabase } from './utils/database_connector.js';
 import { getColors } from './utils/color-picker.js';
 
 import MenuScreens from './views/MenuScreens.js';
@@ -22,25 +23,45 @@ const MainApp = observer(() => {
     salaryStore
   } = useContext(Context);
 
-  const salary = salaryStore.amount;
+  const { setupComplete, profileExists } = salaryStore;
 
 
 
   const [isLoading, setIsLoading] = useState(true);
-  //const [salary, setSalary] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
       await initDatabase();
       await pullFromDB();
+    } catch (error) {
+      console.error('Failed to initialize finance database:', error);
+      setLoadError(error instanceof Error ? error.message : 'Unknown database error.');
+    } finally {
       setIsLoading(false);
-    };
-    load();
-  }, []);
+    }
+  }, [pullFromDB]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (isLoading) {
-    return null; // or splash screen
+    return null;
+  }
+
+  if (loadError) {
+    return (
+      <View style={[styles.errorScreen, { backgroundColor: getColors('background') }]}>
+        <Text style={styles.errorTitle}>Could not open your planner</Text>
+        <Text style={styles.errorMessage}>{loadError}</Text>
+        <TouchableOpacity accessibilityRole="button" onPress={load} style={styles.retryButton}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   return (
@@ -55,9 +76,13 @@ const MainApp = observer(() => {
       >
         <Stack.Screen name="Home">
           {({ navigation }) =>
-            salary !== null
-              ? <MenuScreens navigation={navigation} />
-              : <WelcomeScreen navigation={navigation} />
+            setupComplete ? (
+              <MenuScreens navigation={navigation} />
+            ) : profileExists ? (
+              <DeductionSetupScreen navigation={navigation} />
+            ) : (
+              <WelcomeScreen navigation={navigation} />
+            )
           }
         </Stack.Screen>
         <Stack.Screen name="Welcome Screen">
@@ -85,5 +110,36 @@ const MainApp = observer(() => {
     </NavigationContainer>
   );
 })
+
+const styles = StyleSheet.create({
+  errorScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  errorMessage: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginTop: 12,
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    marginTop: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
 
 export default MainApp;
