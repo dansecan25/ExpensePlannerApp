@@ -86,14 +86,23 @@ The Balance view shows each stored account's current balance and the combined
 balance as of now.
 
 It also projects dated income and outflows, including planned future expenses and
-subscription deductions. Warn the user if the projection becomes negative at any
-point in the next two years. Before accepting a new deduction, reject it when the
-resulting projection would put the user in a negative balance within the next six
-months.
+subscription deductions. Do not show a month-by-month projection list. Instead,
+show an alert when the projected closing balance for any month from the current
+month through the next two years is zero or below. Before accepting a new
+deduction, reject it when the resulting projection would put the user in a
+negative balance within the next six months.
 
-The Balance view includes a scrollable savings section. Expenses marked as savings
-are listed and totaled as saved money. Savings entries are grouped by their tag so
-users can track separate purposes (for example, different savings goals).
+The Balance view shows the total saved amount and a scrollable savings section.
+Expenses marked as savings are listed and totaled as saved money. Savings entries
+are grouped by their tag so users can track separate purposes (for example,
+different savings goals).
+
+At the end of the Balance view, provide a movement dashboard with all-year
+(current year) as the default date range, a month selector, and a custom date range.
+Allow filtering the movement list to all movements, deductions, or incomes. Show
+the selected range's ending balance and, when a movement is selected, the balance
+on that movement's date. Highlight salary income (including manually recorded
+income tagged "Salary") in green and subscriptions in brown.
 
 ## Settings and navigation
 
@@ -105,7 +114,7 @@ The hamburger menu should open and display correctly and provide access to:
 - Money variations
 - Subscriptions
 - Balance (including savings)
-- Settings (including factory reset)
+- Settings (including fixed monthly salary updates and factory reset)
 
 ## Cash-flow calculation reference
 

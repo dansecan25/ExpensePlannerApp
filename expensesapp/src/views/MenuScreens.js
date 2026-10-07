@@ -10,15 +10,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import CustomText from "../components/customText/customText.js";
-import MainScreen from "./MainScreen";
-import SettingsScreen from "./Settings.js";
-import {
-  AccountsScreen,
-  BalanceScreen,
-  ExpenseGroupsScreen,
-  SubscriptionsScreen,
-  TransactionsScreen,
-} from "./FinanceScreens";
+import HomeScreen from "./menu screen/Home";
+import AccountsScreen from "./menu screen/Accounts";
+import ExpenseGroupsScreen from "./menu screen/Expenses by groups";
+import MoneyVariationsScreen from "./menu screen/Money variations";
+import SubscriptionsScreen from "./menu screen/Subscriptions";
+import BalanceScreen from "./menu screen/Balance";
+import SettingsScreen from "./menu screen/Settings";
 
 const menuOptions = [
   { id: "HOME", label: "Home" },
@@ -51,7 +49,7 @@ export default function MenuScreens({ navigation }) {
 
   const renderScreen = () => {
     if (activeScreen === "HOME") {
-      return <MainScreen navigation={navigation} />;
+      return <HomeScreen navigation={navigation} />;
     }
 
     if (activeScreen === "SETTINGS") {
@@ -65,7 +63,7 @@ export default function MenuScreens({ navigation }) {
       return <ExpenseGroupsScreen />;
     }
     if (activeScreen === "VARIATIONS") {
-      return <TransactionsScreen navigation={navigation} />;
+      return <MoneyVariationsScreen navigation={navigation} />;
     }
     if (activeScreen === "SUBSCRIPTIONS") {
       return <SubscriptionsScreen />;
@@ -73,7 +71,7 @@ export default function MenuScreens({ navigation }) {
     if (activeScreen === "BALANCE") {
       return <BalanceScreen />;
     }
-    return <MainScreen navigation={navigation} />;
+    return <HomeScreen navigation={navigation} />;
   };
 
   return (

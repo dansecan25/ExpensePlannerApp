@@ -237,6 +237,20 @@ export const addSalary = async ({
   return result.insertId;
 };
 
+export const updateSalaryAmount = async amount => {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new Error("Enter a salary amount greater than zero.");
+  }
+  const result = await getDB().executeAsync(
+    "UPDATE salary SET amount = ? WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);",
+    [numericAmount],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("Set up an income profile before changing the salary.");
+  }
+};
+
 export const insertSalaryDeductions = async ranges => {
   const db = getDB();
   const statements = [{ query: "DELETE FROM salary_deductions;" }];
@@ -244,7 +258,7 @@ export const insertSalaryDeductions = async ranges => {
     statements.push({
       query: `INSERT INTO salary_deductions (min_salary, max_salary, percentage)
        VALUES (?, ?, ?);`,
-      args: [range.min_salary, range.max_salary ?? null, range.percentage],
+      params: [range.min_salary, range.max_salary ?? null, range.percentage],
     });
   }
   await db.executeBatchAsync(statements);
@@ -256,7 +270,7 @@ export const insertOtherTaxes = async taxes => {
   for (const tax of taxes) {
     statements.push({
       query: "INSERT INTO other_taxes (name, percentage) VALUES (?, ?);",
-      args: [tax.name, tax.percentage],
+      params: [tax.name, tax.percentage],
     });
   }
   await db.executeBatchAsync(statements);
@@ -271,13 +285,13 @@ export const saveDeductionConfiguration = async (ranges, taxes) => {
     statements.push({
       query: `INSERT INTO salary_deductions (min_salary, max_salary, percentage)
        VALUES (?, ?, ?);`,
-      args: [range.min_salary, range.max_salary ?? null, range.percentage],
+      params: [range.min_salary, range.max_salary ?? null, range.percentage],
     });
   }
   for (const tax of taxes) {
     statements.push({
       query: "INSERT INTO other_taxes (name, percentage) VALUES (?, ?);",
-      args: [tax.name, tax.percentage],
+      params: [tax.name, tax.percentage],
     });
   }
   statements.push({ query: "UPDATE salary SET setup_complete = 1;" });

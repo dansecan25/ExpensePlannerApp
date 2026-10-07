@@ -72,7 +72,7 @@ export const getSalaryDeductions = (grossSalary, brackets, otherTaxes) => {
   return incomeTax + contributions;
 };
 
-const createIncomeEvents = data => {
+const createIncomeEvents = (data, projectionThroughDate) => {
   const { salary } = data;
   if (!salary || !salary.fixed || !(salary.amount > 0) || !salary.deposits_date) {
     return [];
@@ -96,12 +96,7 @@ const createIncomeEvents = data => {
     ? asDateString(salary.last_deposit)
     : getLocalDate();
   const from = dateAtNoon(setupDate);
-  const today = getLocalDate();
-  const projectionAnchor = today > setupDate ? today : setupDate;
-  const through = addDays(
-    dateAtNoon(projectionAnchor),
-    daysUntilCalendarDate(new Date(), 0, 2) + 32,
-  );
+  const through = dateAtNoon(projectionThroughDate);
 
   if (salary.deposits_date === "Quincenal") {
     for (
@@ -191,19 +186,23 @@ const signedAmount = event => {
   return -Math.abs(deduction);
 };
 
+const getEventType = event => {
+  if (event.subscription) {
+    return "subscription";
+  }
+  return event.kind === "income" ? "income" : "deduction";
+};
+
 const makeEvents = (data, fromDate, throughDate, extra = {}) => {
-  const startDate = data.salary?.last_deposit
-    ? asDateString(data.salary.last_deposit)
-    : fromDate;
   const endDate = getLocalDate(addDays(dateAtNoon(fromDate), throughDate));
   const events = [
     ...data.expenses
       .filter(event => {
         const date = asDateString(event.date);
-        return date >= startDate && date <= endDate;
+        return date <= endDate;
       })
       .map(event => ({ ...event, date: asDateString(event.date) })),
-    ...createIncomeEvents(data).filter(event => event.date <= endDate),
+    ...createIncomeEvents(data, endDate).filter(event => event.date <= endDate),
     ...data.subscriptions.flatMap(subscription =>
       createSubscriptionEvents(
         subscription,
@@ -214,7 +213,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
   ];
   if (extra.event) {
     const candidateDate = asDateString(extra.event.date);
-    if (candidateDate >= startDate && candidateDate <= endDate) {
+    if (candidateDate <= endDate) {
       events.push({ ...extra.event, date: candidateDate });
     }
   }
@@ -318,8 +317,47 @@ export const getCashflowProjection = (
     (sum, account) => sum + account.balance,
     0,
   );
-
-  return {
+  const eventsByDate = new Map();
+  for (const event of events) {
+    const dateEvents = eventsByDate.get(event.date) || [];
+    dateEvents.push(event);
+    eventsByDate.set(event.date, dateEvents);
+  }
+  const balanceAfterEventDates = balances
+    .filter(entry => eventsByDate.has(entry.date))
+    .map(entry => ({
+      date: entry.date,
+      availableBalance: entry.balance,
+      events: eventsByDate.get(entry.date).map(event => ({
+        type: getEventType(event),
+        name: event.name,
+        amount: Math.abs(signedAmount(event)),
+        change: signedAmount(event),
+        accountId: event.account_id ?? null,
+      })),
+    }));
+  let historicalBalance = startingBalance;
+  const historicalBalanceAfterEventDates = [];
+  for (const [date, dateEvents] of eventsByDate) {
+    if (date >= today) {
+      continue;
+    }
+    for (const event of dateEvents) {
+      historicalBalance += signedAmount(event);
+    }
+    historicalBalanceAfterEventDates.push({
+      date,
+      availableBalance: historicalBalance,
+      events: dateEvents.map(event => ({
+        type: getEventType(event),
+        name: event.name,
+        amount: Math.abs(signedAmount(event)),
+        change: signedAmount(event),
+        accountId: event.account_id ?? null,
+      })),
+    });
+  }
+  const projectionResult = {
     todayBalance,
     endingBalance: balances[balances.length - 1]?.balance ?? startingBalance,
     accountBalances: accountRows,
@@ -331,6 +369,73 @@ export const getCashflowProjection = (
       .map(entry => entry.date),
     throughDate,
   };
+
+  console.log("[Finance projection]", {
+    asOf: today,
+    salary: data.salary
+      ? {
+          grossMonthlyAmount: data.salary.amount,
+          fixed: Boolean(data.salary.fixed),
+          paySchedule: data.salary.deposits_date,
+          salaryProfileDate: data.salary.last_deposit,
+          deductions: getSalaryDeductions(
+            Number(data.salary.amount || 0),
+            data.salaryDeductions,
+            data.otherTaxes,
+          ),
+        }
+      : null,
+    currentAvailableBalance: todayBalance,
+    scheduledEvents: events.map(event => ({
+      date: event.date,
+      type: getEventType(event),
+      name: event.name,
+      amount: Math.abs(signedAmount(event)),
+      change: signedAmount(event),
+      accountId: event.account_id ?? null,
+    })),
+    balanceAfterPastEventDates: historicalBalanceAfterEventDates,
+    balanceAfterEventDates,
+    twoYearDate: throughDate,
+    availableBalanceInTwoYears: projectionResult.endingBalance,
+    firstNegativeDate: projectionResult.negativeDates[0] ?? null,
+  });
+  if (projectionResult.negativeDates.length) {
+    console.warn("[Finance projection warning] Negative balance projected.", {
+      firstNegativeDate: projectionResult.negativeDates[0],
+      currentAvailableBalance: todayBalance,
+      availableBalanceInTwoYears: projectionResult.endingBalance,
+    });
+  }
+  return projectionResult;
+};
+
+export const getBalanceBeforeDate = (projection, date, asOf = new Date()) => {
+  const today = getLocalDate(asOf);
+  return (
+    projection.todayBalance +
+    projection.events
+      .filter(event => event.date > today && event.date < date)
+      .reduce((balance, event) => balance + signedAmount(event), 0)
+  );
+};
+
+export const getBalanceOnDate = (projection, date, asOf = new Date()) => {
+  const today = getLocalDate(asOf);
+  if (date >= today) {
+    return (
+      projection.todayBalance +
+      projection.events
+        .filter(event => event.date > today && event.date <= date)
+        .reduce((balance, event) => balance + signedAmount(event), 0)
+    );
+  }
+  return (
+    projection.todayBalance -
+    projection.events
+      .filter(event => event.date > date && event.date <= today)
+      .reduce((balance, event) => balance + signedAmount(event), 0)
+  );
 };
 
 export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) => {
@@ -342,7 +447,31 @@ export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) => {
       event: candidateEvent,
     },
   );
-  return projection.balances.some(entry => entry.balance < 0);
+  const wouldGoNegative = projection.balances.some(
+    entry => entry.balance < 0,
+  );
+  console.log("[Deduction affordability check]", {
+    event: {
+      name: candidateEvent.name,
+      type: candidateEvent.kind === "income" ? "income" : "deduction",
+      date: candidateEvent.date,
+      amount: Number(candidateEvent.amount ?? candidateEvent.value ?? 0),
+    },
+    currentAvailableBalance: projection.todayBalance,
+    availableBalanceAtEndOfCheck: projection.endingBalance,
+    checkThroughDate: projection.throughDate,
+    firstNegativeDate: projection.negativeDates[0] ?? null,
+    wouldGoNegative,
+  });
+  if (wouldGoNegative) {
+    console.warn("[Deduction affordability warning] Deduction rejected.", {
+      name: candidateEvent.name,
+      date: candidateEvent.date,
+      amount: Number(candidateEvent.amount ?? candidateEvent.value ?? 0),
+      firstNegativeDate: projection.negativeDates[0] ?? null,
+    });
+  }
+  return wouldGoNegative;
 };
 
 export const subscriptionWouldGoNegativeWithinSixMonths = (
@@ -355,7 +484,32 @@ export const subscriptionWouldGoNegativeWithinSixMonths = (
     daysUntilCalendarDate(new Date(), 6, 0),
     { subscription },
   );
-  return projection.balances.some(entry => entry.balance < 0);
+  const wouldGoNegative = projection.balances.some(
+    entry => entry.balance < 0,
+  );
+  console.log("[Subscription affordability check]", {
+    subscription: {
+      name: subscription.name,
+      amount: Number(subscription.amount),
+      startDate: subscription.start_date,
+      frequency: subscription.frequency,
+      type: "subscription",
+    },
+    grossMonthlySalary: data.salary?.amount ?? null,
+    currentAvailableBalance: projection.todayBalance,
+    availableBalanceAtEndOfCheck: projection.endingBalance,
+    checkThroughDate: projection.throughDate,
+    firstNegativeDate: projection.negativeDates[0] ?? null,
+    wouldGoNegative,
+  });
+  if (wouldGoNegative) {
+    console.warn("[Subscription affordability warning] Subscription rejected.", {
+      subscriptionName: subscription.name,
+      subscriptionAmount: Number(subscription.amount),
+      firstNegativeDate: projection.negativeDates[0] ?? null,
+    });
+  }
+  return wouldGoNegative;
 };
 
 export const getProjectionWarning = data => {

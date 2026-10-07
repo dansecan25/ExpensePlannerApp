@@ -84,6 +84,14 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
 
   const handleSave = async () => {
     if (!canSave) {
+      console.warn("[Transaction warning] Invalid transaction details.", {
+        name,
+        amount,
+        date,
+        type: kind === "income" ? "income" : "deduction",
+        validDate: isValidLocalDate(date),
+        inflationValid,
+      });
       Alert.alert(
         "Check transaction details",
         "Enter a name, a positive amount, a valid date, and an inflated amount no lower than the actual amount.",
@@ -106,6 +114,12 @@ const TransactionForm = ({ navigation, mode = "today" }) => {
             kind: "expense",
           })
         ) {
+          console.warn("[Transaction warning] Deduction blocked.", {
+            name: name.trim(),
+            amount: numericAmount,
+            date,
+            type: "deduction",
+          });
           Alert.alert(
             "Deduction not added",
             "This deduction would leave the projected balance below zero within the next six months.",

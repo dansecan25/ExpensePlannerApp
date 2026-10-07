@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
-import CustomButton from "../components/customButton/customButton";
-import CustomText from "../components/customText/customText";
-import ScrollableTile from "../components/scrollableTile/scrollableTile";
+import CustomButton from "../../components/customButton/customButton";
+import CustomText from "../../components/customText/customText";
+import ScrollableTile from "../../components/scrollableTile/scrollableTile";
 import {
   getCashflowData,
   getExpensesForMonth,
   getExpensesForToday,
   getLocalDate,
-} from "../utils/database_connector";
-import { getCashflowProjection } from "../utils/financeCalculations";
+} from "../../utils/database_connector";
+import {
+  getBalanceBeforeDate,
+  getCashflowProjection,
+} from "../../utils/financeCalculations";
 
 const formatMoney = (amount, currency) =>
   `${Number(amount || 0).toLocaleString(undefined, {
@@ -18,7 +21,7 @@ const formatMoney = (amount, currency) =>
     maximumFractionDigits: 2,
   })} ${currency || ""}`.trim();
 
-export default function MainScreen({ navigation }) {
+export default function HomeScreen({ navigation }) {
   const [todayExpenses, setTodayExpenses] = useState([]);
   const [monthExpenses, setMonthExpenses] = useState([]);
   const [availableBeforePayment, setAvailableBeforePayment] = useState(0);
@@ -40,19 +43,9 @@ export default function MainScreen({ navigation }) {
           event.source === "salary" &&
           event.date > today,
       )?.date;
-      const beforePaymentDate = nextPayday
-        ? new Date(`${nextPayday}T12:00:00`)
-        : null;
-      if (beforePaymentDate) {
-        beforePaymentDate.setDate(beforePaymentDate.getDate() - 1);
-      }
-      const beforePaymentKey = beforePaymentDate
-        ? getLocalDate(beforePaymentDate)
-        : today;
-      const balanceBeforePayment =
-        projection.balances.find(
-          entry => entry.date === beforePaymentKey,
-        )?.balance ?? projection.todayBalance;
+      const balanceBeforePayment = nextPayday
+        ? getBalanceBeforeDate(projection, nextPayday, now)
+        : projection.todayBalance;
       const [todayRows, monthRows] = await Promise.all([
         getExpensesForToday(),
         getExpensesForMonth(year, month),

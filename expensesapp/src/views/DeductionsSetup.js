@@ -145,6 +145,7 @@ export default function DeductionSetupScreen({ navigation }) {
     try {
       const parsedSalaryRanges = parseSalaryRanges(salaryRanges);
       const parsedOtherTaxes = parseOtherTaxes(otherTaxes);
+      await pullFromDB();
       if (!salaryStore.profileExists) {
         throw new Error("Complete income setup before saving deductions.");
       }

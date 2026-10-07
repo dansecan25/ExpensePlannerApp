@@ -1,15 +1,63 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import CustomButton from "../components/customButton/customButton";
-import CustomText from "../components/customText/customText";
-import { resetDatabase } from "../utils/database_connector";
-import { Context } from "../utils/store";
+import CustomButton from "../../components/customButton/customButton";
+import CustomText from "../../components/customText/customText";
+import CustomTextInput from "../../components/customTextInput/customTextInput";
+import {
+  getSalaryRow,
+  resetDatabase,
+  updateSalaryAmount,
+} from "../../utils/database_connector";
+import { Context } from "../../utils/store";
 
 export default function SettingsScreen({ navigation }) {
-  const { clear } = useContext(Context);
+  const { clear, pullFromDB, salaryStore } = useContext(Context);
   const [isResetting, setIsResetting] = useState(false);
+  const [salaryAmount, setSalaryAmount] = useState("");
+  const [isSavingSalary, setIsSavingSalary] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    getSalaryRow()
+      .then(salary => {
+        if (isMounted && salary?.amount !== null && salary?.amount !== undefined) {
+          setSalaryAmount(String(salary.amount));
+        }
+      })
+      .catch(error => {
+        console.error("Failed to load salary settings:", error);
+        Alert.alert("Could not load salary settings", "Please try again.");
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const saveSalaryAmount = async () => {
+    if (!salaryAmount.trim() || !Number.isFinite(Number(salaryAmount))) {
+      console.warn("[Settings warning] Invalid monthly salary amount.", {
+        salaryAmount,
+      });
+      Alert.alert("Check salary amount", "Enter a valid monthly salary.");
+      return;
+    }
+    setIsSavingSalary(true);
+    try {
+      await updateSalaryAmount(Number(salaryAmount));
+      await pullFromDB();
+      Alert.alert("Salary updated", "Your projections will use the new salary.");
+    } catch (error) {
+      console.error("Failed to update salary:", error);
+      Alert.alert(
+        "Could not update salary",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setIsSavingSalary(false);
+    }
+  };
 
   const confirmFactoryReset = () => {
     Alert.alert(
@@ -51,6 +99,29 @@ export default function SettingsScreen({ navigation }) {
           text="Manage your app configuration and saved data."
           style={styles.description}
         />
+        {salaryStore.fixed ? (
+          <View style={styles.section}>
+            <CustomText type="header3" text="Monthly gross salary" />
+            <CustomText
+              type="body1"
+              text={`Current saved salary: ${Number(salaryAmount || 0).toLocaleString()} ${salaryStore.currency || "CRC"} per month. Update it to change future projections.`}
+              style={styles.resetDescription}
+            />
+            <CustomTextInput
+              keyboardType="decimal-pad"
+              placeholder="Monthly gross salary"
+              setValue={setSalaryAmount}
+              value={salaryAmount}
+            />
+            <CustomButton
+              disabled={isSavingSalary}
+              onPress={saveSalaryAmount}
+              style={styles.salaryButton}
+              text={isSavingSalary ? "Saving..." : "Save salary"}
+              type="secondary"
+            />
+          </View>
+        ) : null}
         <View style={styles.section}>
           <CustomText type="header3" text="Income deductions" />
           <CustomText
@@ -111,6 +182,10 @@ const styles = StyleSheet.create({
   resetDescription: {
     marginTop: 8,
     marginBottom: 16,
+  },
+  salaryButton: {
+    alignSelf: "flex-start",
+    marginTop: 12,
   },
   resetButton: {
     alignSelf: "flex-start",

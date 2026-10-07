@@ -8,8 +8,10 @@ jest.mock("../src/utils/database_connector", () => ({
 }));
 
 const {
+  getBalanceBeforeDate,
   getCashflowProjection,
   getSalaryDeductions,
+  subscriptionWouldGoNegativeWithinSixMonths,
   wouldGoNegativeWithinSixMonths,
 } = require("../src/utils/financeCalculations");
 const {
@@ -59,25 +61,62 @@ describe("cash-flow calculations", () => {
     expect(projection.accountBalances[0].balance).toBe(100);
   });
 
-  test("does not replay transactions from before the opening-balance date", () => {
+  test("includes recorded income dated before the salary profile date", () => {
     const projection = getCashflowProjection(
       emptyData({
+        salary: {
+          amount: 1000,
+          balance: 0,
+          last_deposit: "2026-10-06",
+          fixed: 1,
+          deposits_date: "Pre last day of month",
+          fixed_day: null,
+        },
         expenses: [
           {
             id: 1,
-            date: "2025-12-31",
-            name: "Earlier purchase",
-            value: 60,
-            kind: "expense",
-            account_id: 1,
+            date: "2026-09-30",
+            name: "Recorded income",
+            value: 20800,
+            kind: "income",
+            account_id: null,
           },
         ],
       }),
-      new Date(2026, 0, 1, 12),
-      1,
+      new Date(2026, 9, 2, 12),
     );
 
-    expect(projection.todayBalance).toBe(100);
+    expect(projection.todayBalance).toBe(20800);
+  });
+
+  test("includes recorded income in the balance before the next salary payment", () => {
+    const asOf = new Date(2026, 9, 2, 12);
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [{ id: 1, name: "Main account", opening_balance: 0 }],
+        salary: {
+          amount: 1000,
+          balance: 0,
+          last_deposit: "2026-10-06",
+          fixed: 1,
+          deposits_date: "Pre last day of month",
+          fixed_day: null,
+        },
+        expenses: [
+          {
+            id: 1,
+            date: "2026-09-30",
+            name: "Recorded income",
+            value: 20800,
+            kind: "income",
+            account_id: null,
+          },
+        ],
+      }),
+      asOf,
+    );
+
+    expect(getBalanceBeforeDate(projection, "2026-10-29", asOf)).toBe(20800);
   });
 
   test("blocks a deduction that makes the six-month balance negative", () => {
@@ -98,6 +137,49 @@ describe("cash-flow calculations", () => {
         account_id: 1,
       }),
     ).toBe(true);
+  });
+
+  test("keeps 8,800 CRC monthly subscriptions affordable on a 1,320,000 CRC salary", () => {
+    const today = new Date();
+    const todayString = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+    const data = emptyData({
+      salary: {
+        amount: 1320000,
+        balance: 0,
+        last_deposit: todayString,
+        fixed: 1,
+        deposits_date: "Pre last day of month",
+        fixed_day: null,
+      },
+      subscriptions: [
+        {
+          id: 1,
+          name: "Crunchyroll",
+          amount: 3000,
+          start_date: todayString,
+          frequency: "monthly",
+          interval_days: null,
+          active: 1,
+          account_id: 1,
+        },
+      ],
+    });
+
+    expect(
+      subscriptionWouldGoNegativeWithinSixMonths(data, {
+        name: "Google One",
+        amount: 5800,
+        start_date: todayString,
+        frequency: "monthly",
+        interval_days: null,
+        active: true,
+        account_id: 1,
+      }),
+    ).toBe(false);
   });
 
   test("applies progressive Hacienda brackets and configured CCSS", () => {
