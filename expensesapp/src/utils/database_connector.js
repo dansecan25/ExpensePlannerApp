@@ -103,6 +103,14 @@ export const initDatabase = async () => {
 
       `
     },
+    {
+      query: `
+      CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE
+      );
+      `
+    },
   ]);
 };
 
@@ -112,47 +120,32 @@ export const resetDatabase = async () => {
   try {
     await db.executeBatchAsync([
       {
-        query: `DROP TABLE IF EXISTS salary;`,
+        query: `DROP TABLE IF EXISTS expense_tags;`,
       },
       {
-        query: `DROP TABLE IF EXISTS salary_deductions;`,
+        query: `DROP TABLE IF EXISTS months_expenses;`,
+      },
+      {
+        query: `DROP TABLE IF EXISTS tags;`,
+      },
+      {
+        query: `DROP TABLE IF EXISTS accounts;`,
+      },
+      {
+        query: `DROP TABLE IF EXISTS yearly_expenses;`,
       },
       {
         query: `DROP TABLE IF EXISTS other_taxes;`,
       },
       {
-        query: `
-          CREATE TABLE salary (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            amount REAL,
-            currency TEXT,
-            fixed BOOL,
-            deposits_date TEXT,
-            fixed_day INTEGER
-          );
-        `,
+        query: `DROP TABLE IF EXISTS salary_deductions;`,
       },
       {
-        query: `
-          CREATE TABLE salary_deductions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            min_salary REAL,
-            max_salary REAL,
-            percentage REAL
-          );
-        `,
-      },
-      {
-        query: `
-          CREATE TABLE other_taxes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name REAL,
-            percentage REAL
-          );
-        `,
+        query: `DROP TABLE IF EXISTS salary;`,
       },
     ]);
 
+    await initDatabase();
     console.log("Database reset successfully");
   } catch (err) {
     console.error("resetDatabase failed:", err);
@@ -188,6 +181,14 @@ export const getSalaryRow = async () => {
 
   return result.rows.item(0);
 };
+
+export const getLocalDate = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const addSalary = async ({
   amount,
   currency,
@@ -431,7 +432,7 @@ export const getExpensesForToday = async () => {
   try{
     const db = getDB();
 
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const today = getLocalDate();
 
     const result = await db.execute(
       `
@@ -524,4 +525,3 @@ export const getAllTags = async () => {
 
   return result.rows?._array ?? [];
 };
-

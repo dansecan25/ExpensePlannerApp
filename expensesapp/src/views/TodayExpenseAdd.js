@@ -11,6 +11,7 @@ import { dropdownStyles } from "../components/customDropdown/dropdownStylesCusto
 import {
   getAccountsCreated,
   getAllTags,
+  getLocalDate,
   insertExpense,
 } from "../utils/database_connector";
 import CustomCheckbox from "../components/customCheckbox/customCheckbox";
@@ -53,7 +54,7 @@ const TodayExpenseAddScreen = ({ navigation }) => {
   }, []);
 
   const handleSave = async () => {
-    const todayISO = new Date().toISOString();
+    const today = getLocalDate();
 
     await insertExpense(
       name,
@@ -61,7 +62,7 @@ const TodayExpenseAddScreen = ({ navigation }) => {
       inflatedAmount === ""? amount:inflatedAmount,
       selectedTag ? [selectedTag] : [],
       selectedAccount,
-      todayISO,
+      today,
       description
     );
     navigation.goBack();

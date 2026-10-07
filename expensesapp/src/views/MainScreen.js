@@ -1,12 +1,10 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { View, Text, Button, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, StyleSheet } from 'react-native';
 import getColors from '../utils/color-picker';
 import CustomText from '../components/customText/customText';
 import CustomButton from '../components/customButton/customButton';
 import ScrollableTile from "../components/scrollableTile/scrollableTile.js"
-import { getExpensesForMonth, getExpensesForToday, resetDatabase } from '../utils/database_connector';
-import { CommonActions } from '@react-navigation/native';
+import { getExpensesForMonth, getExpensesForToday } from '../utils/database_connector';
 import { Context } from '../utils/store';
 
 export default function MainScreen({ navigation }) {
@@ -16,9 +14,7 @@ export default function MainScreen({ navigation }) {
             currentAmount,
             currency,
             deposits_date,
-            fixed,
             fixed_day,
-            clear,
         },
     }=useContext(Context);
     const [todayExpenses, setTodayExpenses] = useState([]);
@@ -226,23 +222,6 @@ export default function MainScreen({ navigation }) {
                 data={spentMonthLabels}
             />
 
-
-            
-
-            <CustomButton
-                text="Restart databases"
-                onPress={async ()=>{
-                    await resetDatabase();
-                    clear(),
-                    navigation.dispatch(
-                        CommonActions.reset({
-                        index: 0,
-                        routes: [{ name: "Home" }],
-                        })
-                    );
-                }}
-            />
-            
         </View>
     </View>
   );

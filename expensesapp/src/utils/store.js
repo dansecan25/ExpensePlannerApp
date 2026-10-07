@@ -23,7 +23,7 @@ const Storage = types.model({
         self.themeStore.setSystemTheme(isDark);
     },
     clear(){
-        self.salaryStore={};
+        self.salaryStore.clear();
     }
 }))
 

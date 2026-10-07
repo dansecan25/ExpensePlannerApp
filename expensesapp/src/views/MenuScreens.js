@@ -1,101 +1,157 @@
-// src/views/MenuScreens.js
 import React, { useState } from "react";
 import {
-  View,
+  Modal,
+  Pressable,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Text,
-  ScrollView,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import CustomText from "../components/customText/customText.js";
 import MainScreen from "./MainScreen";
 import SettingsScreen from "./Settings.js";
-import CustomText from "../components/customText/customText.js";
+
+const menuOptions = [
+  { id: "HOME", label: "Home" },
+  { id: "ACCOUNTS", label: "Accounts" },
+  { id: "GROUPS", label: "Expenses by groups" },
+  { id: "VARIATIONS", label: "Money variations" },
+  { id: "SUBSCRIPTIONS", label: "Subscriptions" },
+  { id: "BALANCE", label: "Balance" },
+  { id: "SETTINGS", label: "Settings" },
+];
+
+const featureDescriptions = {
+  ACCOUNTS: "Create accounts and keep each account's balance separate.",
+  GROUPS: "Review expenses grouped by their tags and savings purposes.",
+  VARIATIONS:
+    "Record income or deductions for today, a past date, or a future date.",
+  SUBSCRIPTIONS:
+    "Manage recurring deductions on monthly, annual, or custom schedules.",
+  BALANCE:
+    "Review account balances, the combined balance, future projections, and savings.",
+};
+
+function MenuIcon() {
+  return (
+    <View style={styles.menuIcon} accessible={false}>
+      <View style={styles.menuIconLine} />
+      <View style={styles.menuIconLine} />
+      <View style={styles.menuIconLine} />
+    </View>
+  );
+}
+
+function FeatureScreen({ screen }) {
+  const option = menuOptions.find(item => item.id === screen);
+
+  return (
+    <View style={styles.featureScreen}>
+      <CustomText type="header2" text={option.label} />
+      <CustomText
+        type="body3"
+        text={featureDescriptions[screen]}
+        style={styles.featureDescription}
+      />
+      <CustomText
+        type="body1"
+        text="Feature controls will be added in a future update."
+        style={styles.featureNote}
+      />
+    </View>
+  );
+}
 
 export default function MenuScreens({ navigation }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeScreen, setActiveScreen] = useState("MAIN");
+  const [activeScreen, setActiveScreen] = useState("HOME");
+
+  const selectScreen = screen => {
+    setActiveScreen(screen);
+    setDrawerOpen(false);
+  };
 
   const renderScreen = () => {
-    switch (activeScreen) {
-      case "SETTINGS":
-        return <SettingsScreen />;
-      case "MAIN":
-      default:
-        return <MainScreen navigation={navigation} />;
+    if (activeScreen === "HOME") {
+      return <MainScreen navigation={navigation} />;
     }
+
+    if (activeScreen === "SETTINGS") {
+      return <SettingsScreen />;
+    }
+
+    return <FeatureScreen screen={activeScreen} />;
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
-            onPress={() => setDrawerOpen(true)}
-            style={styles.menuButton}
+          accessibilityLabel="Open navigation menu"
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={() => setDrawerOpen(true)}
+          style={styles.menuButton}
         >
-            <Text style={styles.menuIcon}>☰</Text>
+          <MenuIcon />
         </TouchableOpacity>
+      </View>
 
-        {/* Spacer to keep title centered */}
-        <View style={{ width: 32 }} />
-    </View>
-
-
-      {/* CONTENT */}
-      <ScrollView style={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.contentContainer}
+        style={styles.content}
+      >
         {renderScreen()}
       </ScrollView>
 
-      {/* DRAWER OVERLAY */}
-      {drawerOpen && (
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setDrawerOpen(false)}
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        transparent
+        visible={drawerOpen}
+      >
         <View style={styles.overlay}>
-            {/* DRAWER FIRST (LEFT) */}
-            <View style={styles.drawer}>
-                <CustomText
-                    style={{color:"black",marginBottom:20}}
-                    type="header3"
-                    text="Menu"
-                />
-
-                <TouchableOpacity
-                    style={styles.drawerItem}
-                    onPress={() => {
-                        setActiveScreen("MAIN");
-                        setDrawerOpen(false);
-                    }}
-                >
-                    <CustomText
-                        style={{color:"black"}}
-                        type="body3"
-                        text="Home"
-                    />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.drawerItem}
-                    onPress={() => {
-                    setActiveScreen("SETTINGS");
-                    setDrawerOpen(false);
-                    }}
-                >
-                    <CustomText
-                        style={{color:"black"}}
-                        type="body3"
-                        text="Settings"
-                    />
-                </TouchableOpacity>
-            </View>
-
-            {/* BACKDROP */}
-            <TouchableOpacity
-            style={styles.overlayBackground}
-            onPress={() => setDrawerOpen(false)}
+          <SafeAreaView style={styles.drawer}>
+            <CustomText
+              style={styles.drawerTitle}
+              type="header3"
+              text="Menu"
             />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={styles.drawerOptions}
+            >
+              {menuOptions.map(option => (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  key={option.id}
+                  onPress={() => selectScreen(option.id)}
+                  style={[
+                    styles.drawerItem,
+                    activeScreen === option.id && styles.activeDrawerItem,
+                  ]}
+                >
+                  <CustomText
+                    style={styles.drawerItemText}
+                    type="body3"
+                    text={option.label}
+                  />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
+          <Pressable
+            accessibilityLabel="Close navigation menu"
+            accessibilityRole="button"
+            onPress={() => setDrawerOpen(false)}
+            style={styles.overlayBackground}
+          />
         </View>
-      )}
-
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -104,59 +160,78 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
   header: {
     height: 56,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
   },
-
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-
   menuButton: {
-    padding: 0,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
-
   menuIcon: {
-    fontSize: 22,
+    width: 24,
+    height: 20,
+    justifyContent: "space-between",
   },
-
+  menuIconLine: {
+    width: 24,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "#FFFFFF",
+  },
   content: {
     flex: 1,
   },
-
-  /* Drawer */
+  contentContainer: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
     flexDirection: "row",
- },
-
+  },
   overlayBackground: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
-
-    drawer: {
-        paddingTop:40,
-        width: 200,
-        backgroundColor: "#ffffff",
-        padding: 20,
-        elevation: 10,
-    },
-
-
-    drawerTitle: {
-        fontSize: 18,
-        marginBottom: 20,
-    },
-
+  drawer: {
+    width: 280,
+    maxWidth: "85%",
+    alignSelf: "stretch",
+    paddingHorizontal: 20,
+    backgroundColor: "#FFFFFF",
+  },
+  drawerOptions: {
+    flex: 1,
+  },
+  drawerTitle: {
+    color: "#000000",
+    marginBottom: 20,
+  },
   drawerItem: {
     paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  activeDrawerItem: {
+    backgroundColor: "#E5E5EA",
+  },
+  drawerItemText: {
+    color: "#000000",
+  },
+  featureScreen: {
+    flex: 1,
+    marginHorizontal: 16,
+    paddingTop: 20,
+  },
+  featureDescription: {
+    marginTop: 16,
+  },
+  featureNote: {
+    marginTop: 24,
   },
 });
-
