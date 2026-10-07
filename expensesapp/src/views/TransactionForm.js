@@ -64,12 +64,18 @@ const TransactionForm = ({
           getAllTags(),
         ]);
         if (isMounted) {
+          const defaultAccount =
+            accountRows.find(
+              account =>
+                account.name.trim().toLocaleLowerCase() === "main account",
+            ) || accountRows[0];
           setAccounts(
             accountRows.map(account => ({
               label: account.name,
               value: account.id,
             })),
           );
+          setAccountId(current => current ?? defaultAccount?.id ?? null);
           setTags(
             tagRows.map(tag => ({
               label: tag.name,
@@ -419,7 +425,7 @@ const TransactionForm = ({
             value={description}
           />
         </Field>
-        <Field label="Account (optional)">
+        <Field label="Account">
           <Dropdown
             data={accounts}
             dropdownPosition="bottom"

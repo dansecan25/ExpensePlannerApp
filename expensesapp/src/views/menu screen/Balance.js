@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
-import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CustomTextInput from "../../components/customTextInput/customTextInput";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import CustomText from "../../components/customText/customText";
-import { getExpensesBy, getLocalDate, isValidLocalDate } from "../../utils/database_connector";
-import { getBalanceOnDate, getCashflowProjection } from "../../utils/financeCalculations";
+import { getLocalDate, isValidLocalDate } from "../../utils/database_connector";
+import {
+  getAccountBalancesOnDate,
+  getBalanceOnDate,
+  getCashflowProjection,
+} from "../../utils/financeCalculations";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 
@@ -45,7 +48,6 @@ const movementType = event =>
 
 export default function BalanceScreen() {
   const { data, error } = useFinanceData();
-  const [savings, setSavings] = useState([]);
   const [rangeMode, setRangeMode] = useState("year");
   const [selectedMonth, setSelectedMonth] = useState(() => getLocalDate().slice(0, 7));
   const [movementFilter, setMovementFilter] = useState("all");
@@ -136,21 +138,6 @@ export default function BalanceScreen() {
   }, [projection]);
   const lastAlertedMonth = useRef(null);
 
-  const reloadSavings = useCallback(async () => {
-    try {
-      setSavings(await getExpensesBy({ kind: "expense", isSavings: true }));
-    } catch (loadError) {
-      console.error("Failed to load savings:", loadError);
-      Alert.alert("Could not load savings", "Please try again.");
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      reloadSavings();
-    }, [reloadSavings]),
-  );
-
   useEffect(() => {
     if (!firstZeroBalanceMonth) {
       lastAlertedMonth.current = null;
@@ -193,20 +180,44 @@ export default function BalanceScreen() {
     });
   }, [balanceAtRangeEnd, movementFilter, rangeMovements, selectedDateRange]);
 
+  const savings = useMemo(
+    () =>
+      (data?.expenses || []).filter(
+        item => item.kind === "expense" && Number(item.is_savings),
+      ),
+    [data],
+  );
   const savingsTotal = savings.reduce(
     (sum, item) => sum + Number(item.value || 0),
     0,
   );
   const savingsGroups = useMemo(() => {
+    const tagNamesById = new Map(
+      (data?.tags || []).map(tag => [Number(tag.id), tag.name]),
+    );
     const groups = new Map();
     for (const item of savings) {
-      const name = item.tags || "Untagged savings";
-      const entries = groups.get(name) || [];
-      entries.push(item);
-      groups.set(name, entries);
+      const namesFromIds = String(item.tag_ids || "")
+        .split(",")
+        .filter(Boolean)
+        .map(id => tagNamesById.get(Number(id)))
+        .filter(Boolean);
+      const namesFromJoin = String(item.tags || "")
+        .split(",")
+        .map(name => name.trim())
+        .filter(Boolean);
+      const names = [...new Set([...namesFromIds, ...namesFromJoin])];
+      const groupNames = names.length ? names : ["Untagged savings"];
+      for (const name of groupNames) {
+        const entries = groups.get(name) || [];
+        if (!entries.some(entry => entry.id === item.id)) {
+          entries.push(item);
+        }
+        groups.set(name, entries);
+      }
     }
     return [...groups.entries()];
-  }, [savings]);
+  }, [data?.tags, savings]);
 
   const selectMovement = event => {
     setSelectedMovement(event);
@@ -222,6 +233,27 @@ export default function BalanceScreen() {
       amount: Number(event.amount ?? event.value ?? 0),
       availableBalance,
     });
+  };
+
+  const renderAccountBreakdown = (sourceProjection, date) => {
+    const breakdown = getAccountBalancesOnDate(
+      sourceProjection,
+      date,
+      new Date(),
+    );
+    return (
+      <>
+        {breakdown.accounts.map(account =>
+          dateOptions(`${account.name}: ${money(account.balance, currency)}`),
+        )}
+        {breakdown.unassignedBalance !== 0
+          ? dateOptions(
+              `Unassigned: ${money(breakdown.unassignedBalance, currency)}`,
+            )
+          : null}
+        {dateOptions(`Total: ${money(breakdown.total, currency)}`)}
+      </>
+    );
   };
 
   return (
@@ -420,20 +452,17 @@ export default function BalanceScreen() {
           )}
           {balanceAtRangeEnd !== null ? (
             <EntryCard title={`Total available by ${formatDisplayDate(selectedDateRange.to)}`}>
-              {dateOptions(money(balanceAtRangeEnd, currency))}
+              {renderAccountBreakdown(
+                dashboardProjection,
+                selectedDateRange.to,
+              )}
             </EntryCard>
           ) : null}
           {selectedMovement && dashboardProjection ? (
             <EntryCard title={`Total available by · ${formatDisplayDate(selectedMovement.date)}`}>
-              {dateOptions(
-                money(
-                  getBalanceOnDate(
-                    dashboardProjection,
-                    selectedMovement.date,
-                    new Date(),
-                  ),
-                  currency,
-                ),
+              {renderAccountBreakdown(
+                dashboardProjection,
+                selectedMovement.date,
               )}
             </EntryCard>
           ) : null}

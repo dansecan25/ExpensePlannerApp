@@ -33,6 +33,11 @@ const dateAtNoon = value => {
 const asDateString = value =>
   typeof value === "string" ? value.slice(0, 10) : getLocalDate(value);
 
+const getMainAccountId = accounts =>
+  accounts.find(
+    account => account.name.trim().toLocaleLowerCase() === "main account",
+  )?.id ?? null;
+
 const addDays = (date, days) => {
   const result = new Date(date);
   result.setDate(result.getDate() + days);
@@ -108,10 +113,7 @@ const createIncomeEvents = (data, projectionThroughDate) => {
     return [];
   }
   const events = [];
-  const salaryAccountId =
-    data.accounts.find(account => account.name === "Main account")?.id ??
-    data.accounts[0]?.id ??
-    null;
+  const salaryAccountId = getMainAccountId(data.accounts);
   const initialEffectiveDate = salary.last_deposit
     ? asDateString(salary.last_deposit)
     : getLocalDate();
@@ -346,7 +348,14 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
       ),
     );
   }
-  return events.sort((left, right) => left.date.localeCompare(right.date));
+  const mainAccountId = getMainAccountId(data.accounts);
+  return events
+    .map(event =>
+      event.account_id === null || event.account_id === undefined
+        ? { ...event, account_id: mainAccountId }
+        : event,
+    )
+    .sort((left, right) => left.date.localeCompare(right.date));
 };
 
 export const getCashflowProjection = (
@@ -380,10 +389,11 @@ export const getCashflowProjection = (
       Number(account.opening_balance || 0),
     ]),
   );
-  if (data.accounts.length && accountOpening === 0 && startingBalance !== 0) {
+  const mainAccountId = getMainAccountId(data.accounts);
+  if (mainAccountId !== null && accountOpening === 0 && startingBalance !== 0) {
     accountBalances.set(
-      data.accounts[0].id,
-      Number(accountBalances.get(data.accounts[0].id) || 0) + startingBalance,
+      mainAccountId,
+      Number(accountBalances.get(mainAccountId) || 0) + startingBalance,
     );
   }
 
@@ -562,6 +572,53 @@ export const getBalanceOnDate = (projection, date, asOf = new Date()) => {
       .filter(event => event.date > date && event.date <= today)
       .reduce((balance, event) => balance + signedAmount(event), 0)
   );
+};
+
+export const getAccountBalancesOnDate = (
+  projection,
+  date,
+  asOf = new Date(),
+) => {
+  const today = getLocalDate(asOf);
+  const accounts = projection.accountBalances.map(account => ({
+    ...account,
+    balance: Number(account.balance || 0),
+  }));
+  const accountBalances = new Map(
+    accounts.map(account => [String(account.id), account.balance]),
+  );
+  const accountEvents =
+    date >= today
+      ? projection.events.filter(event => event.date > today && event.date <= date)
+      : projection.events.filter(event => event.date > date && event.date <= today);
+
+  for (const event of accountEvents) {
+    if (event.account_id === null || event.account_id === undefined) {
+      continue;
+    }
+    const accountId = String(event.account_id);
+    const currentBalance = Number(accountBalances.get(accountId) || 0);
+    const delta = signedAmount(event);
+    accountBalances.set(
+      accountId,
+      currentBalance + (date >= today ? delta : -delta),
+    );
+  }
+
+  const accountRows = accounts.map(account => ({
+    ...account,
+    balance: Number(accountBalances.get(String(account.id)) || 0),
+  }));
+  const total = getBalanceOnDate(projection, date, asOf);
+  const assignedTotal = accountRows.reduce(
+    (sum, account) => sum + account.balance,
+    0,
+  );
+  return {
+    accounts: accountRows,
+    unassignedBalance: total - assignedTotal,
+    total,
+  };
 };
 
 export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) => {

@@ -1,7 +1,16 @@
 import React, { useContext, useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import {
+  errorCodes,
+  isErrorWithCode,
+  keepLocalCopy,
+  pick,
+  saveDocuments,
+  types,
+} from "@react-native-documents/picker";
 import { Dropdown } from "react-native-element-dropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Dirs, FileSystem } from "react-native-file-access";
 
 import CustomButton from "../../components/customButton/customButton";
 import CustomCheckbox from "../../components/customCheckbox/customCheckbox";
@@ -10,10 +19,12 @@ import CustomTextInput from "../../components/customTextInput/customTextInput";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import {
   getLocalDate,
+  exportDatabaseBackup,
   getSalaryRow,
   getSalaryScheduleChanges,
   isValidLocalDate,
   resetDatabase,
+  replaceDatabaseFromBackup,
   saveSalaryScheduleChange,
   updateSalarySavingsMode,
 } from "../../utils/database_connector";
@@ -45,6 +56,8 @@ export default function SettingsScreen({ navigation }) {
   const [savingsModeEnabled, setSavingsModeEnabled] = useState(false);
   const [savingsModeAmount, setSavingsModeAmount] = useState("0");
   const [isSavingSavingsMode, setIsSavingSavingsMode] = useState(false);
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isImportingBackup, setIsImportingBackup] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -206,6 +219,123 @@ export default function SettingsScreen({ navigation }) {
         },
       ],
     );
+  };
+
+  const exportBackup = async () => {
+    setIsExportingBackup(true);
+    const sourcePath = `${Dirs.CacheDir}/expense-planner-backup.json`;
+    try {
+      const backup = await exportDatabaseBackup();
+      await FileSystem.writeFile(
+        sourcePath,
+        JSON.stringify(backup, null, 2),
+        "utf8",
+      );
+      const [savedDocument] = await saveDocuments({
+        sourceUris: [encodeURI(`file://${sourcePath}`)],
+        mimeType: "application/json",
+        fileName: "expense-planner-backup.json",
+        copy: true,
+      });
+      if (!savedDocument || savedDocument.error) {
+        throw new Error(
+          savedDocument?.error || "The backup file could not be saved.",
+        );
+      }
+      Alert.alert(
+        "Backup saved",
+        `Your database backup was saved as ${savedDocument.name || "expense-planner-backup.json"}.`,
+      );
+    } catch (error) {
+      if (
+        isErrorWithCode(error) &&
+        error.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+      console.error("Database backup export failed:", error);
+      Alert.alert(
+        "Export failed",
+        error instanceof Error
+          ? error.message
+          : "The database backup could not be exported.",
+      );
+    } finally {
+      setIsExportingBackup(false);
+    }
+  };
+
+  const importBackup = async () => {
+    setIsImportingBackup(true);
+    try {
+      const [document] = await pick({ type: [types.json] });
+      if (!document || !document.hasRequestedType) {
+        throw new Error("Select a JSON database backup file.");
+      }
+      const [localCopy] = await keepLocalCopy({
+        files: [
+          {
+            uri: document.uri,
+            fileName: "expense-planner-import.json",
+          },
+        ],
+        destination: "cachesDirectory",
+      });
+      if (!localCopy || localCopy.status !== "success") {
+        throw new Error(
+          localCopy?.copyError || "The selected backup file could not be read.",
+        );
+      }
+      const localPath = decodeURIComponent(
+        localCopy.localUri.replace(/^file:\/\//, ""),
+      );
+      const backupContent = await FileSystem.readFile(localPath, "utf8");
+      const shouldReplace = await new Promise(resolve => {
+        Alert.alert(
+          "Replace all app data?",
+          "Importing this backup will replace all accounts, settings, transactions, subscriptions, and savings data currently stored on this phone.",
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => resolve(false),
+            },
+            {
+              text: "Replace data",
+              style: "destructive",
+              onPress: () => resolve(true),
+            },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        );
+      });
+      if (!shouldReplace) {
+        return;
+      }
+      await replaceDatabaseFromBackup(backupContent);
+      clear();
+      await pullFromDB();
+      Alert.alert(
+        "Backup restored",
+        "The app's saved data has been replaced with the backup.",
+      );
+    } catch (error) {
+      if (
+        isErrorWithCode(error) &&
+        error.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+      console.error("Database backup import failed:", error);
+      Alert.alert(
+        "Import failed",
+        error instanceof Error
+          ? error.message
+          : "The selected backup could not be imported.",
+      );
+    } finally {
+      setIsImportingBackup(false);
+    }
   };
 
   return (
@@ -378,6 +508,30 @@ export default function SettingsScreen({ navigation }) {
             type="secondary"
           />
         </View>
+        <View style={styles.section}>
+          <CustomText type="header3" text="Database backup" />
+          <CustomText
+            type="body1"
+            text="Export a JSON backup to your phone, or restore app data from a previously exported backup."
+            style={styles.resetDescription}
+          />
+          <View style={styles.backupButtons}>
+            <CustomButton
+              disabled={isExportingBackup || isImportingBackup}
+              onPress={exportBackup}
+              style={styles.backupButton}
+              text={isExportingBackup ? "Exporting..." : "Export database"}
+              type="secondary"
+            />
+            <CustomButton
+              disabled={isExportingBackup || isImportingBackup}
+              onPress={importBackup}
+              style={styles.backupButton}
+              text={isImportingBackup ? "Importing..." : "Import database"}
+              type="secondary"
+            />
+          </View>
+        </View>
         <View style={styles.resetSection}>
           <CustomText type="header3" text="Factory reset" />
           <CustomText
@@ -443,6 +597,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   resetButton: {
+    alignSelf: "flex-start",
+  },
+  backupButtons: {
+    gap: 10,
+  },
+  backupButton: {
     alignSelf: "flex-start",
   },
 });

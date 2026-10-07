@@ -1,13 +1,15 @@
-import React, { useMemo } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import CustomButton from "../../components/customButton/customButton";
 import CustomText from "../../components/customText/customText";
+import CustomTextInput from "../../components/customTextInput/customTextInput";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import {
   assignSavingsMovementTag,
+  createSavingsGroupTag,
   deleteExpense,
   deleteSavingsGroupTag,
   getLocalDate,
@@ -64,6 +66,8 @@ const getSavingsAdditionsAsOfToday = (movements, today) =>
 
 export default function SavingsMovementsScreen({ navigation }) {
   const { data, error, reload } = useFinanceData();
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
   const currency = data?.salary?.currency || "";
   const savingsMovements = useMemo(
     () =>
@@ -101,6 +105,7 @@ export default function SavingsMovementsScreen({ navigation }) {
         name: tag.name,
         additions: [],
         spending: [],
+        isSavingsGroup: Number(tag.is_savings_group) === 1,
       });
     }
     const groupsByName = new Map(
@@ -161,7 +166,9 @@ export default function SavingsMovementsScreen({ navigation }) {
       }
     }
     return [
-      ...[...byTag.values()].filter(group => group.additions.length),
+      ...[...byTag.values()].filter(
+        group => group.additions.length || group.isSavingsGroup,
+      ),
       ...(untagged.additions.length ? [untagged] : []),
     ];
   }, [data?.tags, savingsAdditionsToDate, spendingMovements]);
@@ -187,6 +194,28 @@ export default function SavingsMovementsScreen({ navigation }) {
     } catch (assignError) {
       console.error("Failed to assign savings movement tag:", assignError);
       Alert.alert("Could not assign tag", "Please try again.");
+    }
+  };
+
+  const createGroup = async () => {
+    if (!newGroupName.trim()) {
+      Alert.alert(
+        "Enter a group name",
+        "Name the savings group before creating it.",
+      );
+      return;
+    }
+    try {
+      await createSavingsGroupTag(newGroupName.trim());
+      setNewGroupName("");
+      setIsCreatingGroup(false);
+      await reload();
+    } catch (createError) {
+      console.error("Failed to create savings group:", createError);
+      Alert.alert(
+        "Could not create savings group",
+        createError instanceof Error ? createError.message : "Please try again.",
+      );
     }
   };
 
@@ -273,7 +302,7 @@ export default function SavingsMovementsScreen({ navigation }) {
                     : "ongoing"}`)}
               {dateOptions(
                 `Account: ${
-                  accountNames.get(movement.account_id) || "Unassigned"
+                  accountNames.get(movement.account_id) || "Main account"
                 }`,
               )}
             </EntryCard>
@@ -282,7 +311,42 @@ export default function SavingsMovementsScreen({ navigation }) {
             ? dateOptions("No recurring savings movements.")
             : null}
         </Section>
-        <Section title="Savings groups">
+        <Section>
+          <View style={localStyles.groupHeading}>
+            <CustomText type="header3" text="Savings groups" />
+            <CustomButton
+              onPress={() => setIsCreatingGroup(value => !value)}
+              style={localStyles.addGroupButton}
+              text="+"
+              type="secondary"
+            />
+          </View>
+          {isCreatingGroup ? (
+            <View style={localStyles.createGroupForm}>
+              <CustomTextInput
+                autoCapitalize="words"
+                placeholder="Savings group name"
+                setValue={setNewGroupName}
+                value={newGroupName}
+              />
+              <View style={styles.buttonRow}>
+                <CustomButton
+                  onPress={createGroup}
+                  style={styles.smallButton}
+                  text="Create group"
+                />
+                <CustomButton
+                  onPress={() => {
+                    setIsCreatingGroup(false);
+                    setNewGroupName("");
+                  }}
+                  style={styles.smallButton}
+                  text="Cancel"
+                  type="secondary"
+                />
+              </View>
+            </View>
+          ) : null}
           {error ? dateOptions("Could not load savings movements.") : null}
           {groups.map(group => {
             const groupTotal = group.additions.reduce(
@@ -378,3 +442,19 @@ export default function SavingsMovementsScreen({ navigation }) {
     </SafeAreaView>
   );
 }
+
+const localStyles = StyleSheet.create({
+  groupHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  addGroupButton: {
+    minWidth: 48,
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  createGroupForm: {
+    marginTop: 12,
+  },
+});

@@ -7,6 +7,47 @@ export const getDB = () => {
   return globalThis.__financeDB;
 };
 
+const getDefaultAccountId = async db => {
+  const findMainAccount = () =>
+    db.execute(
+      `SELECT id FROM accounts
+       WHERE name COLLATE NOCASE = 'Main account'
+       LIMIT 1;`,
+    );
+  let result = await findMainAccount();
+  if (result.rows.length) {
+    return result.rows.item(0).id;
+  }
+  const accounts = await db.execute("SELECT id FROM accounts LIMIT 1;");
+  if (!accounts.rows.length) {
+    const [salary, movements] = await Promise.all([
+      db.execute("SELECT balance FROM salary ORDER BY id LIMIT 1;"),
+      db.execute(
+        "SELECT id FROM months_expenses UNION ALL SELECT id FROM subscriptions LIMIT 1;",
+      ),
+    ]);
+    if (!salary.rows.length && !movements.rows.length) {
+      return null;
+    }
+    await db.executeAsync(
+      "INSERT OR IGNORE INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
+      [
+        "Main account",
+        "#4261a0",
+        Number(salary.rows.item(0)?.balance || 0),
+      ],
+    );
+    result = await findMainAccount();
+    return result.rows.length ? result.rows.item(0).id : null;
+  }
+  await db.executeAsync(
+    "INSERT OR IGNORE INTO accounts (name, color, opening_balance) VALUES (?, ?, 0);",
+    ["Main account", "#4261a0"],
+  );
+  result = await findMainAccount();
+  return result.rows.length ? result.rows.item(0).id : null;
+};
+
 const readRows = result => {
   const rows = [];
   for (let index = 0; index < result.rows.length; index += 1) {
@@ -14,6 +55,20 @@ const readRows = result => {
   }
   return rows;
 };
+
+const DATABASE_BACKUP_FORMAT = "expense-planner-app-database";
+const DATABASE_TABLES = [
+  "salary",
+  "salary_schedule_changes",
+  "salary_deductions",
+  "other_taxes",
+  "accounts",
+  "tags",
+  "months_expenses",
+  "subscriptions",
+  "expense_tags",
+  "yearly_expenses",
+];
 
 const ensureColumn = async (db, table, column, definition) => {
   const result = await db.execute(`PRAGMA table_info(${table});`);
@@ -110,7 +165,8 @@ export const initDatabase = async () => {
         CREATE TABLE IF NOT EXISTS tags (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL UNIQUE,
-          color TEXT NOT NULL DEFAULT '#4261a0'
+          color TEXT NOT NULL DEFAULT '#4261a0',
+          is_savings_group INTEGER NOT NULL DEFAULT 0
         );
       `,
     },
@@ -186,6 +242,7 @@ export const initDatabase = async () => {
   await ensureColumn(db, "salary", "setup_complete", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(db, "accounts", "opening_balance", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(db, "tags", "color", "TEXT NOT NULL DEFAULT '#4261a0'");
+  await ensureColumn(db, "tags", "is_savings_group", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "kind", "TEXT NOT NULL DEFAULT 'expense'");
   await ensureColumn(db, "months_expenses", "is_savings", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "recurrence_frequency", "TEXT");
@@ -200,6 +257,17 @@ export const initDatabase = async () => {
     SET created_at = CURRENT_TIMESTAMP
     WHERE created_at IS NULL;
   `);
+  const defaultAccountId = await getDefaultAccountId(db);
+  if (defaultAccountId !== null) {
+    await db.executeAsync(
+      "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
+      [defaultAccountId],
+    );
+    await db.executeAsync(
+      "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [defaultAccountId],
+    );
+  }
 };
 
 export const resetDatabase = async () => {
@@ -263,6 +331,17 @@ export const addSalary = async ({
     "INSERT OR IGNORE INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
     ["Main account", "#4261a0", balance],
   );
+  const mainAccountId = await getDefaultAccountId(db);
+  if (mainAccountId !== null) {
+    await db.executeAsync(
+      "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
+      [mainAccountId],
+    );
+    await db.executeAsync(
+      "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [mainAccountId],
+    );
+  }
   return result.insertId;
 };
 
@@ -412,16 +491,57 @@ export const createAccount = async (
   if (!normalizedName) {
     throw new Error("Account name is required.");
   }
-  await getDB().executeAsync(
+  const db = getDB();
+  await db.executeAsync(
     "INSERT INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
     [normalizedName, color, Number(openingBalance) || 0],
   );
+  await getDefaultAccountId(db);
 };
 
 export const deleteAccount = async id => {
   const db = getDB();
+  const deletedResult = await db.execute(
+    "SELECT name, opening_balance FROM accounts WHERE id = ?;",
+    [id],
+  );
+  if (!deletedResult.rows.length) {
+    throw new Error("The account could not be found.");
+  }
+  const deletedAccount = deletedResult.rows.item(0);
+  const mainResult = await db.execute(
+    "SELECT id FROM accounts WHERE name COLLATE NOCASE = 'Main account' LIMIT 1;",
+  );
+  const isMainAccount =
+    mainResult.rows.length && Number(mainResult.rows.item(0).id) === Number(id);
+  if (isMainAccount) {
+    await db.executeAsync(
+      "UPDATE months_expenses SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync(
+      "UPDATE subscriptions SET account_id = NULL WHERE account_id = ?;",
+      [id],
+    );
+    await db.executeAsync("DELETE FROM accounts WHERE id = ?;", [id]);
+    await db.executeAsync(
+      "INSERT INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
+      ["Main account", "#4261a0", Number(deletedAccount.opening_balance || 0)],
+    );
+    const replacementMainId = await getDefaultAccountId(db);
+    await db.executeAsync(
+      "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    return;
+  }
+
   const remaining = await db.execute(
-    "SELECT id FROM accounts WHERE id != ? ORDER BY id LIMIT 1;",
+    "SELECT id FROM accounts WHERE id != ? ORDER BY CASE WHEN name COLLATE NOCASE = 'Main account' THEN 0 ELSE 1 END, id LIMIT 1;",
     [id],
   );
   if (remaining.rows.length) {
@@ -460,6 +580,21 @@ export const deleteAccount = async id => {
       "UPDATE subscriptions SET account_id = NULL WHERE account_id = ?;",
       [id],
     );
+    await db.executeAsync("DELETE FROM accounts WHERE id = ?;", [id]);
+    await db.executeAsync(
+      "INSERT INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
+      ["Main account", "#4261a0", Number(deletedAccount.opening_balance || 0)],
+    );
+    const replacementMainId = await getDefaultAccountId(db);
+    await db.executeAsync(
+      "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    await db.executeAsync(
+      "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+      [replacementMainId],
+    );
+    return;
   }
   await db.executeAsync("DELETE FROM accounts WHERE id = ?;", [id]);
 };
@@ -504,9 +639,18 @@ export const createTag = async (name, color = "#4261a0") => {
 
 export const getAllTags = async () => {
   const result = await getDB().execute(
-    "SELECT id, name, color FROM tags ORDER BY name COLLATE NOCASE ASC;",
+    "SELECT id, name, color, is_savings_group FROM tags ORDER BY name COLLATE NOCASE ASC;",
   );
   return readRows(result);
+};
+
+export const createSavingsGroupTag = async (name, color = "#4261a0") => {
+  const tag = await createTag(name, color);
+  await getDB().executeAsync(
+    "UPDATE tags SET is_savings_group = 1 WHERE id = ?;",
+    [tag.id],
+  );
+  return { ...tag, is_savings_group: 1 };
 };
 
 export const insertExpense = async (
@@ -555,6 +699,7 @@ export const insertExpense = async (
     throw new Error("Choose a valid recurrence end date.");
   }
   const db = getDB();
+  const resolvedAccountId = accountId ?? (await getDefaultAccountId(db));
   const result = await db.executeAsync(
     `INSERT INTO months_expenses
       (date, name, description, value, inflated_value, account_id, kind, is_savings,
@@ -566,7 +711,7 @@ export const insertExpense = async (
       description || null,
       numericValue,
       numericInflatedValue,
-      accountId ?? null,
+      resolvedAccountId,
       options.kind === "income" ? "income" : "expense",
       options.isSavings ? 1 : 0,
       recurrenceFrequency,
@@ -609,6 +754,10 @@ export const deleteSavingsGroupTag = async tagId => {
        AND expense_id IN (
          SELECT id FROM months_expenses WHERE is_savings = 1
        );`,
+    [tagId],
+  );
+  await db.executeAsync(
+    "UPDATE tags SET is_savings_group = 0 WHERE id = ?;",
     [tagId],
   );
   await db.executeAsync(
@@ -736,14 +885,16 @@ export const addSubscription = async ({
   if (frequency === "custom" && (!Number.isInteger(intervalDays) || intervalDays < 1)) {
     throw new Error("Custom recurrence must be at least one day.");
   }
-  await getDB().executeAsync(
+  const db = getDB();
+  const resolvedAccountId = accountId ?? (await getDefaultAccountId(db));
+  await db.executeAsync(
     `INSERT INTO subscriptions
       (name, amount, account_id, tag_id, start_date, frequency, interval_days)
      VALUES (?, ?, ?, ?, ?, ?, ?);`,
     [
       normalizedName,
       numericAmount,
-      accountId ?? null,
+      resolvedAccountId,
       tagId ?? null,
       startDate,
       frequency,
@@ -806,4 +957,153 @@ export const getCashflowData = async () => {
     salaryDeductions: readRows(salaryDeductions),
     otherTaxes: readRows(otherTaxes),
   };
+};
+
+export const exportDatabaseBackup = async () => {
+  const db = getDB();
+  const tables = {};
+  for (const table of DATABASE_TABLES) {
+    tables[table] = readRows(await db.execute(`SELECT * FROM "${table}";`));
+  }
+  return {
+    format: DATABASE_BACKUP_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    tables,
+  };
+};
+
+const validateDatabaseBackup = async backup => {
+  if (
+    !backup ||
+    backup.format !== DATABASE_BACKUP_FORMAT ||
+    backup.version !== 1 ||
+    !backup.tables ||
+    typeof backup.tables !== "object" ||
+    Array.isArray(backup.tables)
+  ) {
+    throw new Error("This is not a supported Expense Planner database backup.");
+  }
+  const providedTables = Object.keys(backup.tables).sort();
+  const expectedTables = [...DATABASE_TABLES].sort();
+  if (
+    providedTables.length !== expectedTables.length ||
+    providedTables.some((table, index) => table !== expectedTables[index])
+  ) {
+    throw new Error("The backup does not contain all expected database tables.");
+  }
+
+  const db = getDB();
+  const columnsByTable = new Map();
+  for (const table of DATABASE_TABLES) {
+    const columns = readRows(await db.execute(`PRAGMA table_info("${table}");`));
+    const columnNames = new Set(columns.map(column => column.name));
+    columnsByTable.set(table, columnNames);
+    if (!Array.isArray(backup.tables[table])) {
+      throw new Error(`The backup data for "${table}" is invalid.`);
+    }
+    for (const row of backup.tables[table]) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        throw new Error(`The backup contains an invalid row in "${table}".`);
+      }
+      for (const [column, value] of Object.entries(row)) {
+        if (!columnNames.has(column)) {
+          throw new Error(
+            `The backup contains an unsupported "${table}.${column}" field.`,
+          );
+        }
+        if (
+          value !== null &&
+          typeof value !== "string" &&
+          typeof value !== "number" &&
+          typeof value !== "boolean"
+        ) {
+          throw new Error(`The backup contains an invalid value in "${table}".`);
+        }
+        if (typeof value === "number" && !Number.isFinite(value)) {
+          throw new Error(`The backup contains an invalid number in "${table}".`);
+        }
+      }
+    }
+  }
+  return columnsByTable;
+};
+
+export const replaceDatabaseFromBackup = async backupContent => {
+  let backup;
+  try {
+    backup =
+      typeof backupContent === "string"
+        ? JSON.parse(backupContent)
+        : backupContent;
+  } catch (error) {
+    throw new Error("The selected backup file is not valid JSON.");
+  }
+
+  const columnsByTable = await validateDatabaseBackup(backup);
+  const db = getDB();
+  let transactionStarted = false;
+  try {
+    await db.executeAsync("PRAGMA foreign_keys = OFF;");
+    await db.executeAsync("BEGIN IMMEDIATE;");
+    transactionStarted = true;
+
+    for (const table of [...DATABASE_TABLES].reverse()) {
+      await db.executeAsync(`DELETE FROM "${table}";`);
+    }
+
+    for (const table of DATABASE_TABLES) {
+      const allowedColumns = columnsByTable.get(table);
+      for (const row of backup.tables[table]) {
+        const entries = Object.entries(row).filter(([column]) =>
+          allowedColumns.has(column),
+        );
+        if (!entries.length) {
+          throw new Error(`The backup contains an empty row in "${table}".`);
+        }
+        const columns = entries.map(([column]) => `"${column}"`).join(", ");
+        const placeholders = entries.map(() => "?").join(", ");
+        const values = entries.map(([, value]) =>
+          typeof value === "boolean" ? (value ? 1 : 0) : value,
+        );
+        await db.executeAsync(
+          `INSERT INTO "${table}" (${columns}) VALUES (${placeholders});`,
+          values,
+        );
+      }
+    }
+
+    const defaultAccountId = await getDefaultAccountId(db);
+    if (defaultAccountId !== null) {
+      await db.executeAsync(
+        "UPDATE months_expenses SET account_id = ? WHERE account_id IS NULL;",
+        [defaultAccountId],
+      );
+      await db.executeAsync(
+        "UPDATE subscriptions SET account_id = ? WHERE account_id IS NULL;",
+        [defaultAccountId],
+      );
+    }
+
+    const foreignKeyViolations = readRows(
+      await db.execute("PRAGMA foreign_key_check;"),
+    );
+    if (foreignKeyViolations.length) {
+      throw new Error("The backup contains invalid account, tag, or movement references.");
+    }
+    await db.executeAsync("COMMIT;");
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await db.executeAsync("ROLLBACK;");
+      } catch (rollbackError) {
+        console.error("Failed to roll back database restore:", rollbackError);
+      }
+    }
+    console.error("Database restore failed:", error);
+    throw error;
+  } finally {
+    await db.executeAsync("PRAGMA foreign_keys = ON;");
+  }
 };

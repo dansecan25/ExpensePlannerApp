@@ -9,6 +9,7 @@ jest.mock("../src/utils/database_connector", () => ({
 
 const {
   getBalanceBeforeDate,
+  getAccountBalancesOnDate,
   getCashflowProjection,
   getPreLastAvailableDay,
   getSalaryDeductions,
@@ -48,6 +49,115 @@ const emptyData = overrides => ({
 });
 
 describe("cash-flow calculations", () => {
+  test("assigns transactions without an account to Main account", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 50 },
+        ],
+        expenses: [
+          {
+            id: 1,
+            date: "2026-01-03",
+            name: "Unassigned deduction",
+            value: 10,
+            kind: "expense",
+            account_id: null,
+          },
+          {
+            id: 2,
+            date: "2026-01-04",
+            name: "BAC income",
+            value: 5,
+            kind: "income",
+            account_id: 2,
+          },
+          {
+            id: 3,
+            date: "2026-01-05",
+            name: "Unassigned income",
+            value: 7,
+            kind: "income",
+            account_id: null,
+          },
+        ],
+      }),
+      new Date(2026, 0, 1, 12),
+      5,
+    );
+
+    expect(projection.accountBalances).toEqual([
+      { id: 1, name: "Main account", opening_balance: 100, balance: 100 },
+      { id: 2, name: "BAC", opening_balance: 50, balance: 50 },
+    ]);
+    expect(projection.unassignedBalance).toBe(0);
+    expect(projection.events.map(event => event.account_id)).toEqual([1, 2, 1]);
+    expect(
+      getAccountBalancesOnDate(
+        projection,
+        "2026-01-05",
+        new Date(2026, 0, 1, 12),
+      ).accounts,
+    ).toEqual([
+      { id: 1, name: "Main account", opening_balance: 100, balance: 97 },
+      { id: 2, name: "BAC", opening_balance: 50, balance: 55 },
+    ]);
+  });
+
+  test("calculates account balances before and after dated movements", () => {
+    const projection = {
+      todayBalance: 160,
+      accountBalances: [
+        { id: 1, name: "Checking", balance: 100 },
+        { id: 2, name: "Savings", balance: 60 },
+      ],
+      events: [
+        {
+          date: "2026-01-08",
+          kind: "income",
+          amount: 10,
+          account_id: 2,
+        },
+        {
+          date: "2026-01-12",
+          kind: "expense",
+          amount: 20,
+          account_id: 1,
+        },
+      ],
+    };
+
+    expect(
+      getAccountBalancesOnDate(
+        projection,
+        "2026-01-12",
+        new Date(2026, 0, 10, 12),
+      ),
+    ).toEqual({
+      accounts: [
+        { id: 1, name: "Checking", balance: 80 },
+        { id: 2, name: "Savings", balance: 60 },
+      ],
+      unassignedBalance: 0,
+      total: 140,
+    });
+    expect(
+      getAccountBalancesOnDate(
+        projection,
+        "2026-01-08",
+        new Date(2026, 0, 10, 12),
+      ),
+    ).toEqual({
+      accounts: [
+        { id: 1, name: "Checking", balance: 100 },
+        { id: 2, name: "Savings", balance: 50 },
+      ],
+      unassignedBalance: 0,
+      total: 150,
+    });
+  });
+
   test("carries dated transactions forward and flags the first negative date", () => {
     const projection = getCashflowProjection(
       emptyData({

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
@@ -112,6 +112,18 @@ export default function SubscriptionsScreen() {
       reloadSubscriptions();
     }, [reloadSubscriptions]),
   );
+
+  useEffect(() => {
+    if (accountId !== null || !data?.accounts?.length) {
+      return;
+    }
+    const defaultAccount =
+      data.accounts.find(
+        account =>
+          account.name.trim().toLocaleLowerCase() === "main account",
+      ) || data.accounts[0];
+    setAccountId(defaultAccount.id);
+  }, [accountId, data?.accounts]);
 
   const save = async () => {
     if (isSaving) {
@@ -332,7 +344,7 @@ export default function SubscriptionsScreen() {
             dropdownPosition="bottom"
             keyboardAvoiding={false}
             onChange={item => setAccountId(item.value)}
-            placeholder="Account (optional)"
+            placeholder="Account"
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={[dropdownStyles.input, styles.inputSpacing]}

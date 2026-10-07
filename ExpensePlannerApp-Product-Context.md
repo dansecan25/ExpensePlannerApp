@@ -115,19 +115,27 @@ different savings goals).
 
 The Savings Movements screen lists savings additions by group, lets users record
 an expense against a group, and supports deleting an individual addition or a
-group. Deleting a group removes its tag from savings additions but preserves the
-movements as untagged savings.
+group. Users can create a savings group from this screen. Deleting a group
+removes its tag from savings additions but preserves the movements as untagged
+savings.
 Show savings available as of today, counting a recurring contribution only on
 its scheduled occurrence date and reducing the saved amount by expenses
 explicitly recorded from a savings group. Also list recurring savings and their
 assigned accounts.
 
 At the end of the Balance view, provide a movement dashboard with all-year
-(current year) as the default date range, a month selector, and a custom date range.
-Allow filtering the movement list to all movements, deductions, or incomes. Show
-the selected range's ending balance and, when a movement is selected, the balance
-on that movement's date. Highlight salary income (including manually recorded
-income tagged "Salary") in green and subscriptions in brown.
+(current rolling window) as the default date range: from today's date one year
+ago through the last day of the current year. Group movements by month and year,
+and show repeating transactions in a separate list from one-time transactions.
+Also provide a month selector and a custom date range, with the displayed list
+limited to the same rolling window. Allow filtering the movement list to all
+movements, deductions, or incomes. Show the selected range's ending balance and,
+when a movement is selected, the balance on that movement's date, broken down by
+account and followed by the total. Assign transactions without a selected
+account to Main account; explicitly selected accounts such as BAC retain their
+own balances.
+Highlight salary income (including manually recorded income tagged "Salary") in
+green and subscriptions in brown.
 
 ## Settings and navigation
 
@@ -139,7 +147,8 @@ The hamburger menu should open and display correctly and provide access to:
 - Money variations
 - Subscriptions
 - Balance (including savings)
-- Settings (including fixed monthly salary updates and factory reset)
+- Settings (including fixed monthly salary updates, factory reset, JSON database
+  backup export, and full database restore from a JSON backup)
 
 ## Cash-flow calculation reference
 
