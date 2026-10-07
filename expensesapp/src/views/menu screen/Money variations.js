@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import CustomText from "../../components/customText/customText";
 import {
+  deleteExpense,
   getExpensesBy,
   getLocalDate,
   stopExpenseRecurrence,
@@ -90,6 +91,12 @@ export default function MoneyVariationsScreen({ navigation }) {
                 currency,
               )}`,
             )}
+            {transaction.inflated_value !== null &&
+            transaction.inflated_value !== undefined ? (
+              dateOptions(
+                `Actual Value: ${money(transaction.value, currency)}`,
+              )
+            ) : null}
             {transaction.recurrence_frequency
               ? dateOptions(
                   Number(transaction.recurrence_active ?? 1) === 0
@@ -143,6 +150,45 @@ export default function MoneyVariationsScreen({ navigation }) {
             {transaction.description
               ? dateOptions(transaction.description)
               : null}
+            <CustomButton
+              onPress={() =>
+                Alert.alert(
+                  "Delete transaction",
+                  `Permanently delete "${transaction.name}"?${
+                    transaction.recurrence_frequency
+                      ? " This also removes its recurring schedule and all projected occurrences. Past occurrences are calculated from this schedule and are not separate saved transactions."
+                      : ""
+                  } This cannot be undone.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete",
+                      style: "destructive",
+                      onPress: async () => {
+                        try {
+                          await deleteExpense(transaction.id);
+                          await reloadTransactions();
+                        } catch (deleteError) {
+                          console.error(
+                            "Failed to delete money variation:",
+                            deleteError,
+                          );
+                          Alert.alert(
+                            "Could not delete transaction",
+                            deleteError instanceof Error
+                              ? deleteError.message
+                              : "Please try again.",
+                          );
+                        }
+                      },
+                    },
+                  ],
+                )
+              }
+              style={styles.inlineButton}
+              text="Delete transaction"
+              type="warning"
+            />
           </EntryCard>
         ))}
       </View>

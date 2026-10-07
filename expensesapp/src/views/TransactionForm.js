@@ -8,12 +8,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../components/customDropdown/CustomDropdown";
 
 import CustomButton from "../components/customButton/customButton";
 import CustomCheckbox from "../components/customCheckbox/customCheckbox";
 import CustomText from "../components/customText/customText";
 import CustomTextInput from "../components/customTextInput/customTextInput";
+import DatePicker from "../components/datePicker/DatePicker";
 import { dropdownStyles } from "../components/customDropdown/dropdownStylesCustom";
 import {
   createTag,
@@ -25,6 +26,8 @@ import {
   insertExpense,
 } from "../utils/database_connector";
 import { wouldGoNegativeWithinSixMonths } from "../utils/financeCalculations";
+import { getColors } from "../utils/color-picker";
+import { useTheme } from "../utils/themeContext";
 
 const TransactionForm = ({
   navigation,
@@ -33,6 +36,7 @@ const TransactionForm = ({
   initialTagName = "",
   initialSavingsWithdrawal = false,
 }) => {
+  useTheme();
   const isVariation = mode === "variation";
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -337,9 +341,8 @@ const TransactionForm = ({
         )}
         {isVariation && (
           <Field label="Date (YYYY-MM-DD)">
-            <CustomTextInput
-              autoCapitalize="none"
-              placeholder="2026-10-06"
+            <DatePicker
+              placeholder="Select transaction date"
               setValue={setDate}
               value={date}
             />
@@ -425,8 +428,8 @@ const TransactionForm = ({
                   />
                 </Field>
                 <Field label="End date (optional, YYYY-MM-DD)">
-                  <CustomTextInput
-                    autoCapitalize="none"
+                  <DatePicker
+                    allowClear
                     placeholder="Leave blank to repeat until stopped"
                     setValue={setRecurrenceEndDate}
                     value={recurrenceEndDate}
@@ -488,16 +491,29 @@ const TransactionForm = ({
                   ? "Search or create a savings tag"
                   : "Search or create a tag"
               }
-              placeholderTextColor="#a8a8a8ff"
+              placeholderTextColor={getColors("placeholder")}
               returnKeyType="done"
-              style={styles.tagInput}
+              style={[
+                styles.tagInput,
+                {
+                  backgroundColor: getColors("input"),
+                  borderColor: getColors("border"),
+                  color: getColors("secondaryText"),
+                },
+              ]}
               value={tagQuery}
             />
             {canCreateTag && (
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setTagColorOpen(open => !open)}
-                style={styles.tagColorToggle}
+                style={[
+                  styles.tagColorToggle,
+                  {
+                    backgroundColor: getColors("surface"),
+                    borderColor: getColors("border"),
+                  },
+                ]}
               >
                 <View
                   style={[
@@ -505,12 +521,24 @@ const TransactionForm = ({
                     { backgroundColor: validTagColor ? tagColor : "#4261a0" },
                   ]}
                 />
-                <CustomText type="body5" text="Color" />
+                <CustomText
+                  type="body5"
+                  text="Color"
+                  style={{ color: getColors("secondaryText") }}
+                />
               </Pressable>
             )}
           </View>
           {tagMenuOpen && matchingTags.length > 0 && (
-            <View style={styles.tagOptions}>
+            <View
+              style={[
+                styles.tagOptions,
+                {
+                  backgroundColor: getColors("surface"),
+                  borderColor: getColors("border"),
+                },
+              ]}
+            >
               <ScrollView
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled
@@ -520,7 +548,13 @@ const TransactionForm = ({
                   <Pressable
                     key={tag.value}
                     onPress={() => selectTag(tag)}
-                    style={styles.tagOption}
+                    style={[
+                      styles.tagOption,
+                      {
+                        backgroundColor: getColors("surface"),
+                        borderBottomColor: getColors("border"),
+                      },
+                    ]}
                   >
                     <View
                       style={[
@@ -528,7 +562,11 @@ const TransactionForm = ({
                         { backgroundColor: tag.color || "#4261a0" },
                       ]}
                     />
-                    <CustomText type="body4" text={tag.label} />
+                    <CustomText
+                      type="body4"
+                      text={tag.label}
+                      style={{ color: getColors("secondaryText") }}
+                    />
                   </Pressable>
                 ))}
               </ScrollView>
@@ -549,8 +587,15 @@ const TransactionForm = ({
                     maxLength={7}
                     onChangeText={value => setTagColor(value)}
                     placeholder="#4261A0"
-                    placeholderTextColor="#a8a8a8ff"
-                    style={styles.colorHexInput}
+                    placeholderTextColor={getColors("placeholder")}
+                    style={[
+                      styles.colorHexInput,
+                      {
+                        backgroundColor: getColors("input"),
+                        borderColor: getColors("border"),
+                        color: getColors("secondaryText"),
+                      },
+                    ]}
                     value={tagColor}
                   />
                   <View style={styles.tagColorOptions}>

@@ -2,6 +2,7 @@ import React from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import CustomText from "../customText/customText";
 import getColors from "../../utils/color-picker";
+import { useTheme } from "../../utils/themeContext";
 
 export default function ScrollableTile({
   title,
@@ -9,8 +10,9 @@ export default function ScrollableTile({
   size = 180, // square size (width & height)
   style={}
 }) {
+  useTheme();
   return (
-    <View style={[styles.tile, { width: "100%", height: size },style]}>
+    <View style={[styles.tile, { backgroundColor: getColors("tile_background"), width: "100%", height: size },style]}>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -31,7 +33,6 @@ export default function ScrollableTile({
 
 const styles = StyleSheet.create({
   tile: {
-    backgroundColor: getColors("tile_background"),
     borderRadius: 16,
     padding: 14,
     elevation: 3, // Android shadow
@@ -49,4 +50,3 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 });
-

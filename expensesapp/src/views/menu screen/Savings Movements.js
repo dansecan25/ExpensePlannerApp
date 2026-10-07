@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import CustomButton from "../../components/customButton/customButton";

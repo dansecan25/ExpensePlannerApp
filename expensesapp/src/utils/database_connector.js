@@ -117,6 +117,7 @@ export const initDatabase = async () => {
           account_id INTEGER,
           savings_mode_enabled INTEGER NOT NULL DEFAULT 0,
           savings_mode_amount REAL NOT NULL DEFAULT 0,
+          theme_mode TEXT NOT NULL DEFAULT 'system',
           setup_complete INTEGER NOT NULL DEFAULT 1
         );
       `,
@@ -262,6 +263,12 @@ export const initDatabase = async () => {
   await ensureColumn(db, "salary", "account_id", "INTEGER");
   await ensureColumn(db, "salary", "savings_mode_enabled", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "salary", "savings_mode_amount", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(
+    db,
+    "salary",
+    "theme_mode",
+    "TEXT NOT NULL DEFAULT 'system'",
+  );
   await ensureColumn(db, "salary", "setup_complete", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(db, "accounts", "opening_balance", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(db, "tags", "color", "TEXT NOT NULL DEFAULT '#4261a0'");
@@ -442,6 +449,19 @@ export const updateSalarySavingsMode = async (enabled, amount) => {
   );
   if (result.rowsAffected === 0) {
     throw new Error("Set up an income profile before enabling Savings mode.");
+  }
+};
+
+export const updateThemeMode = async mode => {
+  if (!["system", "light", "dark"].includes(mode)) {
+    throw new Error("Choose system, light, or dark appearance.");
+  }
+  const result = await getDB().executeAsync(
+    "UPDATE salary SET theme_mode = ? WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);",
+    [mode],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error("Set up your profile before changing appearance.");
   }
 };
 

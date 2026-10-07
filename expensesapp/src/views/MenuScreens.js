@@ -10,6 +10,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import CustomText from "../components/customText/customText.js";
+import { getColors } from "../utils/color-picker";
+import { useTheme } from "../utils/themeContext";
 import HomeScreen from "./menu screen/Home";
 import AccountsScreen from "./menu screen/Accounts";
 import ExpenseGroupsScreen from "./menu screen/Expenses by groups";
@@ -41,6 +43,7 @@ function MenuIcon() {
 }
 
 export default function MenuScreens({ navigation }) {
+  useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState("HOME");
 
@@ -106,9 +109,14 @@ export default function MenuScreens({ navigation }) {
         visible={drawerOpen}
       >
         <View style={styles.overlay}>
-          <SafeAreaView style={styles.drawer}>
+          <SafeAreaView
+            style={[styles.drawer, { backgroundColor: getColors("surface") }]}
+          >
             <CustomText
-              style={styles.drawerTitle}
+              style={[
+                styles.drawerTitle,
+                { color: getColors("secondaryText") },
+              ]}
               type="header3"
               text="Menu"
             />
@@ -123,11 +131,17 @@ export default function MenuScreens({ navigation }) {
                   onPress={() => selectScreen(option.id)}
                   style={[
                     styles.drawerItem,
+                    activeScreen === option.id && {
+                      backgroundColor: getColors("selected"),
+                    },
                     activeScreen === option.id && styles.activeDrawerItem,
                   ]}
                 >
                   <CustomText
-                    style={styles.drawerItemText}
+                    style={[
+                      styles.drawerItemText,
+                      { color: getColors("secondaryText") },
+                    ]}
                     type="body3"
                     text={option.label}
                   />
@@ -190,13 +204,11 @@ const styles = StyleSheet.create({
     maxWidth: "85%",
     alignSelf: "stretch",
     paddingHorizontal: 20,
-    backgroundColor: "#FFFFFF",
   },
   drawerOptions: {
     flex: 1,
   },
   drawerTitle: {
-    color: "#000000",
     marginBottom: 20,
   },
   drawerItem: {
@@ -204,10 +216,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 8,
   },
-  activeDrawerItem: {
-    backgroundColor: "#E5E5EA",
-  },
-  drawerItemText: {
-    color: "#000000",
-  },
+  activeDrawerItem: {},
+  drawerItemText: {},
 });

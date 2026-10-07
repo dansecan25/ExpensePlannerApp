@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../components/customDropdown/CustomDropdown";
 
 import CustomButton from "../components/customButton/customButton";
 import CustomCheckbox from "../components/customCheckbox/customCheckbox";

@@ -25,6 +25,9 @@ const Storage = types.model({
                 result.fixed_day,
                 Boolean(result.setup_complete)
             );
+            self.themeStore.setMode(result.theme_mode || "system");
+        } else {
+            self.themeStore.setMode("system");
         }
 
     }),

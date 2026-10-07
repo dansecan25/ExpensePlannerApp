@@ -167,6 +167,13 @@ The hamburger menu should open and display correctly and provide access to:
 - Settings (including fixed monthly salary updates, factory reset, JSON database
   backup export, and full database restore from a JSON backup)
 
+Settings also lets users choose light appearance, dark appearance, or follow the
+device's system appearance. The choice persists with the database and defaults to
+the device setting unless the user explicitly selects light or dark. Keep the
+existing typeface unchanged. Use the app's in-house modal dropdowns and single-date
+calendar picker rather than native date text entry or third-party dropdown
+components.
+
 ## Cash-flow calculation reference
 
 `BaseData/GastosAnualesCopy.xlsx` is the reference for the planner's cash-flow

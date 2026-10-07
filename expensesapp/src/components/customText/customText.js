@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import getColors from '../../utils/color-picker';
+import { useTheme } from '../../utils/themeContext';
 
 const textStyle=(type)=>{
 
@@ -74,9 +75,10 @@ const CustomText=({
   type = 'header1',
   style,
 })=>{
+  useTheme();
   return (
     <Text
-        style={{...styles.text,...textStyle(type),...style}}
+        style={[styles.text, textStyle(type), { color: getColors("textprimary") }, style]}
     >
         {text}
     </Text>
@@ -84,9 +86,7 @@ const CustomText=({
 }
 
 const styles = StyleSheet.create({
-  text: {
-    color:getColors("textprimary"),
-  },
+  text: {},
 });
 
 export default CustomText;

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
-import CustomTextInput from "../../components/customTextInput/customTextInput";
+import DatePicker from "../../components/datePicker/DatePicker";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import CustomText from "../../components/customText/customText";
 import { getLocalDate, isValidLocalDate } from "../../utils/database_connector";
@@ -260,9 +260,11 @@ export default function BalanceScreen() {
     );
     return (
       <>
-        {breakdown.accounts.map(account =>
-          dateOptions(`${account.name}: ${money(account.balance, currency)}`),
-        )}
+        {breakdown.accounts.map(account => (
+          <View key={account.id}>
+            {dateOptions(`${account.name}: ${money(account.balance, currency)}`)}
+          </View>
+        ))}
         {breakdown.unassignedBalance !== 0
           ? dateOptions(
               `Unassigned: ${money(breakdown.unassignedBalance, currency)}`,
@@ -401,9 +403,8 @@ export default function BalanceScreen() {
           ) : null}
           {rangeMode === "custom" ? (
             <View style={dashboardStyles.dateRange}>
-              <CustomTextInput
-                autoCapitalize="none"
-                placeholder="From (YYYY-MM-DD)"
+              <DatePicker
+                placeholder="From date"
                 setValue={value => {
                   setCustomFrom(value);
                   setSelectedMovement(null);
@@ -411,9 +412,8 @@ export default function BalanceScreen() {
                 style={dashboardStyles.dateInput}
                 value={customFrom}
               />
-              <CustomTextInput
-                autoCapitalize="none"
-                placeholder="To (YYYY-MM-DD)"
+              <DatePicker
+                placeholder="To date"
                 setValue={value => {
                   setCustomTo(value);
                   setSelectedMovement(null);

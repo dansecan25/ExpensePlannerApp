@@ -1,5 +1,7 @@
 import React from 'react';
 import { TextInput, StyleSheet } from 'react-native';
+import { getColors } from '../../utils/color-picker';
+import { useTheme } from '../../utils/themeContext';
 
 const CustomTextInput=({
   value,
@@ -9,15 +11,24 @@ const CustomTextInput=({
   autoCapitalize = 'sentences',
   style,
 })=>{
+  useTheme();
   return (
     <TextInput
       value={value}
       placeholder={placeholder}
-      placeholderTextColor={"#a8a8a8ff"}
+      placeholderTextColor={getColors("placeholder")}
       onChangeText={(text) => setValue(text)}
       keyboardType={keyboardType}
       autoCapitalize={autoCapitalize}
-      style={{...styles.input, ...style}}
+      style={[
+        styles.input,
+        {
+          backgroundColor: getColors("input"),
+          borderColor: getColors("border"),
+          color: getColors("secondaryText"),
+        },
+        style,
+      ]}
     />
   );
 }
@@ -29,8 +40,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     paddingHorizontal:15,
     borderRadius: 8,
-    backgroundColor:"#ffffff",
-    borderColor: '#ccc',
     fontSize: 16,
   },
 });

@@ -5,6 +5,8 @@ import {
   View,
   StyleSheet,
 } from 'react-native';
+import { getColors } from '../../utils/color-picker';
+import { useTheme } from '../../utils/themeContext';
 
 export default function CustomButton({
   text,
@@ -15,12 +17,15 @@ export default function CustomButton({
   style = {},
   fontSize = 16, // 👈 NEW PROP
 }) {
+  useTheme();
   const hasText = Boolean(text);
   const hasIcon = Boolean(icon);
 
   const containerStyles = [
     styles.base,
     styles[type],
+    type === 'secondary' && { backgroundColor: getColors('input') },
+    type === 'ghost' && { borderColor: getColors('accent') },
     disabled && styles.disabled,
     !hasText && hasIcon && styles.iconOnly,
     style,
@@ -39,6 +44,8 @@ export default function CustomButton({
             style={[
               styles.text,
               styles[`${type}Text`],
+              type === 'secondary' && { color: getColors('secondaryText') },
+              type === 'ghost' && { color: getColors('accent') },
               { fontSize }, // 👈 APPLY HERE
             ]}
           >

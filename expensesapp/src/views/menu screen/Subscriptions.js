@@ -8,18 +8,22 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import CustomText from "../../components/customText/customText";
 import CustomTextInput from "../../components/customTextInput/customTextInput";
+import DatePicker from "../../components/datePicker/DatePicker";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import { addSubscription, createTag, deleteSubscription, getCashflowData, getLocalDate, getSubscriptions, setSubscriptionActive } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { subscriptionWouldGoNegativeWithinSixMonths } from "../../utils/financeCalculations";
+import { getColors } from "../../utils/color-picker";
+import { useTheme } from "../../utils/themeContext";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 export default function SubscriptionsScreen() {
+  useTheme();
   const { data, error, reload } = useFinanceData();
   const scrollRef = useRef(null);
   const [subscriptions, setSubscriptions] = useState([]);
@@ -302,9 +306,8 @@ export default function SubscriptionsScreen() {
             style={styles.inputSpacing}
             value={amount}
           />
-          <CustomTextInput
-            autoCapitalize="none"
-            placeholder="First deduction date (YYYY-MM-DD)"
+          <DatePicker
+            placeholder="First deduction date"
             setValue={setStartDate}
             style={styles.inputSpacing}
             value={startDate}
@@ -364,16 +367,29 @@ export default function SubscriptionsScreen() {
                 onFocus={() => setTagMenuOpen(true)}
                 onSubmitEditing={submitTag}
                 placeholder="Search or create a tag"
-                placeholderTextColor="#a8a8a8ff"
+                placeholderTextColor={getColors("placeholder")}
                 returnKeyType="done"
-                style={localStyles.tagInput}
+                style={[
+                  localStyles.tagInput,
+                  {
+                    backgroundColor: getColors("input"),
+                    borderColor: getColors("border"),
+                    color: getColors("secondaryText"),
+                  },
+                ]}
                 value={tagQuery}
               />
               {canCreateTag && (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => setTagColorOpen(open => !open)}
-                  style={localStyles.colorToggle}
+                  style={[
+                    localStyles.colorToggle,
+                    {
+                      backgroundColor: getColors("surface"),
+                      borderColor: getColors("border"),
+                    },
+                  ]}
                 >
                   <View
                     style={[
@@ -381,12 +397,24 @@ export default function SubscriptionsScreen() {
                       { backgroundColor: validTagColor ? tagColor : "#4261a0" },
                     ]}
                   />
-                  <CustomText type="body5" text="Color" />
+                  <CustomText
+                    type="body5"
+                    text="Color"
+                    style={{ color: getColors("secondaryText") }}
+                  />
                 </Pressable>
               )}
             </View>
             {tagMenuOpen && matchingTags.length > 0 && (
-              <View style={localStyles.tagOptions}>
+              <View
+                style={[
+                  localStyles.tagOptions,
+                  {
+                    backgroundColor: getColors("surface"),
+                    borderColor: getColors("border"),
+                  },
+                ]}
+              >
                 <ScrollView
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
@@ -396,7 +424,13 @@ export default function SubscriptionsScreen() {
                     <Pressable
                       key={tag.value}
                       onPress={() => selectTag(tag)}
-                      style={localStyles.tagOption}
+                      style={[
+                        localStyles.tagOption,
+                        {
+                          backgroundColor: getColors("surface"),
+                          borderBottomColor: getColors("border"),
+                        },
+                      ]}
                     >
                       <View
                         style={[
@@ -404,7 +438,11 @@ export default function SubscriptionsScreen() {
                           { backgroundColor: tag.color || "#4261a0" },
                         ]}
                       />
-                      <CustomText type="body4" text={tag.label} />
+                      <CustomText
+                        type="body4"
+                        text={tag.label}
+                        style={{ color: getColors("secondaryText") }}
+                      />
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -425,8 +463,15 @@ export default function SubscriptionsScreen() {
                       maxLength={7}
                       onChangeText={setTagColor}
                       placeholder="#4261A0"
-                      placeholderTextColor="#a8a8a8ff"
-                      style={localStyles.hexInput}
+                      placeholderTextColor={getColors("placeholder")}
+                      style={[
+                        localStyles.hexInput,
+                        {
+                          backgroundColor: getColors("input"),
+                          borderColor: getColors("border"),
+                          color: getColors("secondaryText"),
+                        },
+                      ]}
                       value={tagColor}
                     />
                     <View style={localStyles.colorPalette}>

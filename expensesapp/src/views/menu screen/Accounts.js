@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { Alert, ScrollView } from "react-native";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import CustomButton from "../../components/customButton/customButton";
 import CustomCheckbox from "../../components/customCheckbox/customCheckbox";
 import CustomText from "../../components/customText/customText";
 import CustomTextInput from "../../components/customTextInput/customTextInput";
+import DatePicker from "../../components/datePicker/DatePicker";
 import {
   createAccount,
   createAccountTransfer,
@@ -338,9 +339,8 @@ export default function AccountsScreen() {
             dateOptions("Add at least two accounts to move money between them.")
           ) : (
             <>
-              <CustomTextInput
-                autoCapitalize="none"
-                placeholder="Date (YYYY-MM-DD)"
+              <DatePicker
+                placeholder="Transfer date"
                 setValue={setTransferDate}
                 value={transferDate}
               />
@@ -405,9 +405,9 @@ export default function AccountsScreen() {
                     value={transferFrequency}
                     valueField="value"
                   />
-                  <CustomTextInput
-                    autoCapitalize="none"
-                    placeholder="End date (optional, YYYY-MM-DD)"
+                  <DatePicker
+                    allowClear
+                    placeholder="End date (optional)"
                     setValue={setTransferEndDate}
                     style={styles.inputSpacing}
                     value={transferEndDate}

@@ -8,7 +8,7 @@ import {
   saveDocuments,
   types,
 } from "@react-native-documents/picker";
-import { Dropdown } from "react-native-element-dropdown";
+import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Dirs, FileSystem } from "react-native-file-access";
 
@@ -16,6 +16,7 @@ import CustomButton from "../../components/customButton/customButton";
 import CustomCheckbox from "../../components/customCheckbox/customCheckbox";
 import CustomText from "../../components/customText/customText";
 import CustomTextInput from "../../components/customTextInput/customTextInput";
+import DatePicker from "../../components/datePicker/DatePicker";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import {
   getLocalDate,
@@ -28,6 +29,7 @@ import {
   replaceDatabaseFromBackup,
   saveSalaryScheduleChange,
   updateSalarySavingsMode,
+  updateThemeMode,
 } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { Context } from "../../utils/store";
@@ -45,7 +47,7 @@ const payDayOptions = Array.from({ length: 31 }, (_, index) => ({
 }));
 
 export default function SettingsScreen({ navigation }) {
-  const { clear, pullFromDB, salaryStore } = useContext(Context);
+  const { clear, pullFromDB, salaryStore, themeStore } = useContext(Context);
   const [isResetting, setIsResetting] = useState(false);
   const [salaryAmount, setSalaryAmount] = useState("");
   const [salaryAccounts, setSalaryAccounts] = useState([]);
@@ -61,6 +63,35 @@ export default function SettingsScreen({ navigation }) {
   const [isSavingSavingsMode, setIsSavingSavingsMode] = useState(false);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isImportingBackup, setIsImportingBackup] = useState(false);
+  const [appearanceMode, setAppearanceMode] = useState(themeStore.mode);
+  const [isSavingAppearance, setIsSavingAppearance] = useState(false);
+
+  const saveAppearanceMode = async mode => {
+    setIsSavingAppearance(true);
+    try {
+      await updateThemeMode(mode);
+      themeStore.setMode(mode);
+      setAppearanceMode(mode);
+    } catch (appearanceError) {
+      console.error("Failed to update appearance:", appearanceError);
+      Alert.alert(
+        "Could not update appearance",
+        appearanceError instanceof Error
+          ? appearanceError.message
+          : "Please try again.",
+      );
+    } finally {
+      setIsSavingAppearance(false);
+    }
+  };
+
+  const setFollowDevice = followDevice => {
+    if (followDevice) {
+      saveAppearanceMode("system");
+      return;
+    }
+    saveAppearanceMode(themeStore.systemIsDark ? "dark" : "light");
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -362,6 +393,41 @@ export default function SettingsScreen({ navigation }) {
           text="Manage your app configuration and saved data."
           style={styles.description}
         />
+        <View style={styles.section}>
+          <CustomText type="header3" text="Appearance" />
+          <CustomText
+            type="body1"
+            text="Follow your phone's appearance by default, or choose a theme for the app."
+            style={styles.resetDescription}
+          />
+          <CustomCheckbox
+            checked={appearanceMode === "system"}
+            containerStyles={styles.appearanceToggle}
+            label="Use device appearance"
+            onToggle={() =>
+              setFollowDevice(appearanceMode !== "system")
+            }
+          />
+          <CustomCheckbox
+            checked={
+              appearanceMode === "dark" ||
+              (appearanceMode === "system" && themeStore.systemIsDark)
+            }
+            containerStyles={styles.appearanceToggle}
+            label="Dark mode"
+            onToggle={() =>
+              saveAppearanceMode(
+                appearanceMode === "dark" ||
+                  (appearanceMode === "system" && themeStore.systemIsDark)
+                  ? "light"
+                  : "dark",
+              )
+            }
+          />
+          {isSavingAppearance ? (
+            <CustomText type="body5" text="Saving appearance..." />
+          ) : null}
+        </View>
         {salaryStore.profileExists ? (
           <View style={styles.section}>
             <CustomText type="header3" text="Income and pay schedule" />
@@ -478,9 +544,8 @@ export default function SettingsScreen({ navigation }) {
               valueField="value"
             />
             {effectiveMode === "specific" ? (
-              <CustomTextInput
-                autoCapitalize="none"
-                placeholder="Effective date (YYYY-MM-DD)"
+              <DatePicker
+                placeholder="Effective date"
                 setValue={setEffectiveDate}
                 value={effectiveDate}
               />
@@ -629,6 +694,9 @@ const styles = StyleSheet.create({
   savingsModeLabel: {
     marginTop: 14,
     marginBottom: 8,
+  },
+  appearanceToggle: {
+    marginTop: 14,
   },
   resetButton: {
     alignSelf: "flex-start",

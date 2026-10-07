@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -13,6 +13,7 @@ import TodayExpenseAddScreen from './views/TodayExpenseAdd.js';
 import GeneralExpenseAddScreen from './views/GeneralExpenseAdd.js';
 import { Context } from './utils/store.js';
 import { observer } from 'mobx-react-lite';
+import { ThemeContext } from './utils/themeContext.js';
 
 const Stack = createNativeStackNavigator();
 
@@ -20,10 +21,21 @@ const MainApp = observer(() => {
 
   const {
     pullFromDB,
-    salaryStore
+    salaryStore,
+    themeStore,
+    setThemeOnStore,
   } = useContext(Context);
 
   const { setupComplete, profileExists } = salaryStore;
+  const systemColorScheme = useColorScheme();
+  const isDark =
+    themeStore.mode === 'system'
+      ? themeStore.systemIsDark
+      : themeStore.mode === 'dark';
+
+  useEffect(() => {
+    setThemeOnStore(systemColorScheme === 'dark');
+  }, [setThemeOnStore, systemColorScheme]);
 
 
 
@@ -65,6 +77,7 @@ const MainApp = observer(() => {
   }
 
   return (
+    <ThemeContext.Provider value={{ isDark }}>
     <NavigationContainer>
       <Stack.Navigator
         screenOptions={{
@@ -108,6 +121,7 @@ const MainApp = observer(() => {
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
+    </ThemeContext.Provider>
   );
 })
 
