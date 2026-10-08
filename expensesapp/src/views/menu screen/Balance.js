@@ -1,11 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  errorCodes,
+  isErrorWithCode,
+  saveDocuments,
+} from "@react-native-documents/picker";
 import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
+import CustomButton from "../../components/customButton/customButton";
 import DatePicker from "../../components/datePicker/DatePicker";
-import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import CustomText from "../../components/customText/customText";
+import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import { getLocalDate, isValidLocalDate } from "../../utils/database_connector";
+import { Dirs, FileSystem } from "react-native-file-access";
 import {
   getAccountBalancesOnDate,
   getBalanceOnDate,
@@ -53,6 +60,7 @@ const movementType = event =>
 
 export default function BalanceScreen() {
   const { data, error } = useFinanceData();
+  const [isExportingReport, setIsExportingReport] = useState(false);
   const [rangeMode, setRangeMode] = useState("year");
   const [selectedMonth, setSelectedMonth] = useState(() => getLocalDate().slice(0, 7));
   const [movementFilter, setMovementFilter] = useState("all");
@@ -127,6 +135,209 @@ export default function BalanceScreen() {
           new Date(),
         )
       : null;
+  const startingBalanceDate = useMemo(() => {
+    const [year, month, day] = selectedDateRange.from.split("-").map(Number);
+    const previousDay = new Date(year, month - 1, day - 1, 12);
+    return getLocalDate(previousDay);
+  }, [selectedDateRange.from]);
+  const startingBalanceBreakdown =
+    dashboardProjection && validDateRange
+      ? getAccountBalancesOnDate(
+          dashboardProjection,
+          startingBalanceDate,
+          new Date(),
+        )
+      : null;
+  const reportEndingBalance =
+    dashboardProjection && validDateRange
+      ? getAccountBalancesOnDate(
+          dashboardProjection,
+          selectedDateRange.to,
+          new Date(),
+        )
+      : null;
+  const savingsAvailableOnDate = (date, expenses) => {
+    const contributions = expenses.filter(
+      item =>
+        item.kind === "savings" ||
+        (item.kind === "expense" && Number(item.is_savings)),
+    );
+    const usages = expenses
+      .filter(
+        item =>
+          item.kind === "savings_use" ||
+          (item.kind === "expense" &&
+            Number(item.is_savings_withdrawal) === 1),
+      )
+      .filter(item => item.date.slice(0, 10) <= date)
+      .reduce((sum, item) => sum + Number(item.value || 0), 0);
+    return getSavingsAvailableAsOfDate(contributions, date) - usages;
+  };
+  const savingsAtRangeStart = data
+    ? savingsAvailableOnDate(startingBalanceDate, data.expenses)
+    : null;
+  const savingsAtRangeEnd =
+    data && validDateRange
+      ? savingsAvailableOnDate(selectedDateRange.to, data.expenses)
+      : null;
+
+  const exportMovementReport = async () => {
+    if (
+      !data ||
+      !dashboardProjection ||
+      !startingBalanceBreakdown ||
+      !reportEndingBalance ||
+      savingsAtRangeStart === null ||
+      savingsAtRangeEnd === null
+    ) {
+      Alert.alert("Report unavailable", "Load finance data and choose a valid date range before exporting.");
+      return;
+    }
+
+    setIsExportingReport(true);
+    const sourcePath = `${Dirs.CacheDir}/balance-movements-report.json`;
+    try {
+      const accountNames = new Map(
+        data.accounts.map(account => [String(account.id), account.name]),
+      );
+      const transfersById = new Map(
+        (data.accountTransfers || []).map(transfer => [
+          String(transfer.id),
+          transfer,
+        ]),
+      );
+      const report = {
+        format: "expense-planner-app-balance-movements-report",
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        currency,
+        filters: {
+          rangeMode,
+          from: selectedDateRange.from,
+          to: selectedDateRange.to,
+          movementType: movementFilter,
+        },
+        startingBalance: {
+          asOf: startingBalanceDate,
+          total: startingBalanceBreakdown.total,
+          accounts: startingBalanceBreakdown.accounts.map(account => ({
+            accountId: account.id,
+            accountName: account.name,
+            balance: account.balance,
+          })),
+          unassigned: startingBalanceBreakdown.unassignedBalance,
+        },
+        endingBalance: {
+          asOf: selectedDateRange.to,
+          total: reportEndingBalance.total,
+          accounts: reportEndingBalance.accounts.map(account => ({
+            accountId: account.id,
+            accountName: account.name,
+            balance: account.balance,
+          })),
+          unassigned: reportEndingBalance.unassignedBalance,
+        },
+        savings: {
+          beginning: {
+            asOf: startingBalanceDate,
+            available: savingsAtRangeStart,
+          },
+          ending: {
+            asOf: selectedDateRange.to,
+            available: savingsAtRangeEnd,
+          },
+        },
+        movements: rangeMovements.map(event => {
+          const amount = Number(event.amount ?? event.value ?? 0);
+          const projectedAmount = Number(event.inflated_value ?? amount);
+          const transfer = event.account_transfer
+            ? transfersById.get(String(event.transfer_id))
+            : null;
+          const incomingTransfer = event.kind === "transfer_in";
+          const counterpartAccountId = transfer
+            ? incomingTransfer
+              ? transfer.from_account_id
+              : transfer.to_account_id
+            : null;
+          return {
+            date: event.date,
+            name: event.name,
+            type: movementType(event),
+            kind: event.kind,
+            accountId: event.account_id ?? null,
+            accountName:
+              accountNames.get(String(event.account_id)) || "Unassigned",
+            transfer: transfer
+              ? {
+                  transferId: transfer.id,
+                  fromAccountId: transfer.from_account_id,
+                  fromAccountName: transfer.from_account_name,
+                  toAccountId: transfer.to_account_id,
+                  toAccountName: transfer.to_account_name,
+                  counterpartAccountId,
+                  counterpartAccountName:
+                    accountNames.get(String(counterpartAccountId)) || null,
+                }
+              : null,
+            amount: event.kind === "expense" ? projectedAmount : amount,
+            actualAmount:
+              event.inflated_value !== null &&
+              event.inflated_value !== undefined &&
+              projectedAmount !== amount
+                ? amount
+                : null,
+            currency,
+            isRecurring: Boolean(
+              event.recurring_deduction || event.recurrence_frequency,
+            ),
+            isSubscription: Boolean(event.subscription),
+            isAccountTransfer: Boolean(event.account_transfer),
+            description: event.description || "",
+            source: event.source || null,
+            recurrenceFrequency: event.recurrence_frequency || null,
+            isSavings: Number(event.is_savings) === 1,
+            tagIds: event.tag_ids || "",
+            tags: event.tags || "",
+          };
+        }),
+      };
+
+      await FileSystem.writeFile(sourcePath, JSON.stringify(report, null, 2), "utf8");
+      const [savedDocument] = await saveDocuments({
+        sourceUris: [encodeURI(`file://${sourcePath}`)],
+        mimeType: "application/json",
+        fileName: `balance-report-${selectedDateRange.from}-to-${selectedDateRange.to}.json`,
+        copy: true,
+      });
+      if (!savedDocument || savedDocument.error) {
+        throw new Error(
+          savedDocument?.error || "The balance report could not be saved.",
+        );
+      }
+      Alert.alert(
+        "Report exported",
+        `Your filtered Balance report was saved as ${
+          savedDocument.name || "a JSON file"
+        }.`,
+      );
+    } catch (exportError) {
+      if (
+        isErrorWithCode(exportError) &&
+        exportError.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+      console.error("Balance movement report export failed:", exportError);
+      Alert.alert(
+        "Export failed",
+        exportError instanceof Error
+          ? exportError.message
+          : "The balance report could not be exported.",
+      );
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
   const firstNegativeBalanceWarning = useMemo(() => {
     if (!projection) {
       return null;
@@ -403,7 +614,27 @@ export default function BalanceScreen() {
               : null}
           </ScrollView>
         </Section>
-        <Section title="Movement dashboard">
+        <Section>
+          <View style={dashboardStyles.headingRow}>
+            <CustomText
+              type="header3"
+              text="Movement dashboard"
+              style={dashboardStyles.heading}
+            />
+            <CustomButton
+              text={isExportingReport ? "Exporting..." : "Export JSON"}
+              type="secondary"
+              fontSize={13}
+              disabled={
+                isExportingReport ||
+                !data ||
+                !validDateRange ||
+                !dashboardProjection
+              }
+              onPress={exportMovementReport}
+              style={dashboardStyles.exportButton}
+            />
+          </View>
           <Dropdown
             data={[
               { label: "All year", value: "year" },
@@ -573,6 +804,20 @@ export default function BalanceScreen() {
 }
 
 const dashboardStyles = StyleSheet.create({
+  headingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  heading: {
+    flex: 1,
+  },
+  exportButton: {
+    minHeight: 40,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
   dropdown: {
     ...dropdownStyles.input,
     marginTop: 12,
