@@ -461,6 +461,7 @@ export const getCashflowProjection = (
   }
 
   let balance = startingBalance;
+  const firstNegativeAccountBalances = new Map();
   for (const event of events) {
     if (event.date >= today) {
       break;
@@ -490,6 +491,20 @@ export const getCashflowProjection = (
           event.account_id,
           Number(accountBalances.get(event.account_id) || 0) + delta,
         );
+      }
+    }
+    for (const account of data.accounts) {
+      const accountBalance = Number(accountBalances.get(account.id) || 0);
+      if (
+        accountBalance < 0 &&
+        !firstNegativeAccountBalances.has(String(account.id))
+      ) {
+        firstNegativeAccountBalances.set(String(account.id), {
+          date: dateString,
+          accountId: account.id,
+          accountName: account.name,
+          balance: accountBalance,
+        });
       }
     }
     if (dateString === today) {
@@ -560,6 +575,9 @@ export const getCashflowProjection = (
     negativeDates: balances
       .filter(entry => entry.date >= today && entry.balance < 0)
       .map(entry => entry.date),
+    negativeAccounts: [...firstNegativeAccountBalances.values()].sort(
+      (left, right) => left.date.localeCompare(right.date),
+    ),
     throughDate,
   };
 
@@ -684,7 +702,31 @@ export const getAccountBalancesOnDate = (
   };
 };
 
-export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) => {
+const getAffordabilityRisk = (projection, description) => {
+  const negativeAccount = projection.negativeAccounts[0] ?? null;
+  const negativeDate = projection.negativeDates[0] ?? null;
+  const wouldGoNegative = Boolean(negativeAccount || negativeDate);
+  const risk = {
+    wouldGoNegative,
+    negativeDate,
+    negativeAccount,
+    projection,
+  };
+  console.log(`[${description} affordability check]`, {
+    currentAvailableBalance: projection.todayBalance,
+    availableBalanceAtEndOfCheck: projection.endingBalance,
+    checkThroughDate: projection.throughDate,
+    firstNegativeDate: negativeDate,
+    firstNegativeAccount: negativeAccount,
+    wouldGoNegative,
+  });
+  return risk;
+};
+
+export const getDeductionAffordabilityRiskWithinSixMonths = (
+  data,
+  candidateEvent,
+) => {
   const projection = getCashflowProjection(
     data,
     new Date(),
@@ -693,34 +735,32 @@ export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) => {
       event: candidateEvent,
     },
   );
-  const wouldGoNegative = projection.balances.some(
-    entry => entry.balance < 0,
-  );
-  console.log("[Deduction affordability check]", {
+  const risk = getAffordabilityRisk(projection, "Deduction");
+  console.log("[Deduction affordability event]", {
     event: {
       name: candidateEvent.name,
       type: candidateEvent.kind === "income" ? "income" : "deduction",
       date: candidateEvent.date,
       amount: Number(candidateEvent.amount ?? candidateEvent.value ?? 0),
     },
-    currentAvailableBalance: projection.todayBalance,
-    availableBalanceAtEndOfCheck: projection.endingBalance,
-    checkThroughDate: projection.throughDate,
-    firstNegativeDate: projection.negativeDates[0] ?? null,
-    wouldGoNegative,
   });
-  if (wouldGoNegative) {
-    console.warn("[Deduction affordability warning] Deduction rejected.", {
+  if (risk.wouldGoNegative) {
+    console.warn("[Deduction affordability warning] Negative balance risk detected.", {
       name: candidateEvent.name,
       date: candidateEvent.date,
       amount: Number(candidateEvent.amount ?? candidateEvent.value ?? 0),
-      firstNegativeDate: projection.negativeDates[0] ?? null,
+      firstNegativeDate: risk.negativeDate,
+      firstNegativeAccount: risk.negativeAccount,
     });
   }
-  return wouldGoNegative;
+  return risk;
 };
 
-export const subscriptionWouldGoNegativeWithinSixMonths = (
+export const wouldGoNegativeWithinSixMonths = (data, candidateEvent) =>
+  getDeductionAffordabilityRiskWithinSixMonths(data, candidateEvent)
+    .wouldGoNegative;
+
+export const getSubscriptionAffordabilityRiskWithinSixMonths = (
   data,
   subscription,
 ) => {
@@ -730,10 +770,8 @@ export const subscriptionWouldGoNegativeWithinSixMonths = (
     daysUntilCalendarDate(new Date(), 6, 0),
     { subscription },
   );
-  const wouldGoNegative = projection.balances.some(
-    entry => entry.balance < 0,
-  );
-  console.log("[Subscription affordability check]", {
+  const risk = getAffordabilityRisk(projection, "Subscription");
+  console.log("[Subscription affordability details]", {
     subscription: {
       name: subscription.name,
       amount: Number(subscription.amount),
@@ -742,21 +780,24 @@ export const subscriptionWouldGoNegativeWithinSixMonths = (
       type: "subscription",
     },
     grossMonthlySalary: data.salary?.amount ?? null,
-    currentAvailableBalance: projection.todayBalance,
-    availableBalanceAtEndOfCheck: projection.endingBalance,
-    checkThroughDate: projection.throughDate,
-    firstNegativeDate: projection.negativeDates[0] ?? null,
-    wouldGoNegative,
   });
-  if (wouldGoNegative) {
-    console.warn("[Subscription affordability warning] Subscription rejected.", {
+  if (risk.wouldGoNegative) {
+    console.warn("[Subscription affordability warning] Negative balance risk detected.", {
       subscriptionName: subscription.name,
       subscriptionAmount: Number(subscription.amount),
-      firstNegativeDate: projection.negativeDates[0] ?? null,
+      firstNegativeDate: risk.negativeDate,
+      firstNegativeAccount: risk.negativeAccount,
     });
   }
-  return wouldGoNegative;
+  return risk;
 };
+
+export const subscriptionWouldGoNegativeWithinSixMonths = (
+  data,
+  subscription,
+) =>
+  getSubscriptionAffordabilityRiskWithinSixMonths(data, subscription)
+    .wouldGoNegative;
 
 export const getProjectionWarning = data => {
   const projection = getCashflowProjection(data);

@@ -10,7 +10,9 @@ jest.mock("../src/utils/database_connector", () => ({
 const {
   getBalanceBeforeDate,
   getAccountBalancesOnDate,
+  getBalanceOnDate,
   getCashflowProjection,
+  getDeductionAffordabilityRiskWithinSixMonths,
   getPreLastAvailableDay,
   getSalaryDeductions,
   subscriptionWouldGoNegativeWithinSixMonths,
@@ -192,6 +194,78 @@ describe("cash-flow calculations", () => {
     ).toBe(125);
   });
 
+  test("projects recurring deductions at inflated amounts and keeps transfers total-neutral", () => {
+    const asOf = new Date(2026, 9, 7, 12);
+    const deductions = [
+      ["Pago aparta", 110000],
+      ["buses", 14800],
+      ["Pago Lenovo", 27000],
+      ["Pago 12 meses Cell", 35350, 35500],
+      ["Pago mac", 56000],
+    ];
+    const projection = getCashflowProjection(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 1000000 },
+          { id: 2, name: "BAC", opening_balance: 500000 },
+        ],
+        expenses: deductions.map(([name, value, inflatedValue]) => ({
+          date: "2026-10-31",
+          name,
+          value,
+          inflated_value: inflatedValue ?? null,
+          kind: "expense",
+          account_id: 1,
+          recurrence_frequency: "monthly",
+        })),
+        accountTransfers: [
+          {
+            id: 11,
+            date: "2026-10-31",
+            from_account_id: 2,
+            to_account_id: 1,
+            amount: 129500,
+            recurrence_frequency: "monthly",
+            recurrence_active: 1,
+          },
+        ],
+      }),
+      asOf,
+      24,
+    );
+    const availableBeforeMovements = getBalanceOnDate(
+      projection,
+      "2026-10-30",
+      asOf,
+    );
+    const availableAfterMovements = getBalanceOnDate(
+      projection,
+      "2026-10-31",
+      asOf,
+    );
+    const cellPayment = projection.events.find(
+      event => event.name === "Pago 12 meses Cell" && event.date === "2026-10-31",
+    );
+    const accountBalances = getAccountBalancesOnDate(
+      projection,
+      "2026-10-31",
+      asOf,
+    );
+
+    expect(cellPayment).toMatchObject({
+      amount: 35350,
+      inflated_value: 35500,
+    });
+    expect(availableBeforeMovements - availableAfterMovements).toBe(243300);
+    expect(accountBalances.total).toBe(availableAfterMovements);
+    expect(
+      accountBalances.accounts.reduce(
+        (sum, account) => sum + account.balance,
+        0,
+      ) + accountBalances.unassignedBalance,
+    ).toBe(availableAfterMovements);
+  });
+
   test("projects recurring account transfers only on their scheduled dates", () => {
     const projection = getCashflowProjection(
       emptyData({
@@ -230,6 +304,40 @@ describe("cash-flow calculations", () => {
         new Date(2026, 0, 1, 12),
       ).accounts.map(account => account.balance),
     ).toEqual([80, 20]);
+  });
+
+  test("warns about a negative account even when the combined balance stays positive", () => {
+    const today = new Date();
+    const todayString = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+    const risk = getDeductionAffordabilityRiskWithinSixMonths(
+      emptyData({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 100 },
+          { id: 2, name: "BAC", opening_balance: 1000 },
+        ],
+      }),
+      {
+        date: todayString,
+        name: "Account deduction",
+        amount: 150,
+        account_id: 1,
+        kind: "expense",
+      },
+    );
+
+    expect(risk.wouldGoNegative).toBe(true);
+    expect(risk.negativeDate).toBeNull();
+    expect(risk.negativeAccount).toMatchObject({
+      date: todayString,
+      accountId: 1,
+      accountName: "Main account",
+      balance: -50,
+    });
+    expect(risk.projection.todayBalance).toBe(950);
   });
 
   test("stopped recurring transfers retain dates through the stop date only", () => {

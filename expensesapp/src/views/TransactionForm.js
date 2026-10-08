@@ -25,7 +25,8 @@ import {
   isValidLocalDate,
   insertExpense,
 } from "../utils/database_connector";
-import { wouldGoNegativeWithinSixMonths } from "../utils/financeCalculations";
+import { getDeductionAffordabilityRiskWithinSixMonths } from "../utils/financeCalculations";
+import { confirmProjectedNegativeBalance } from "../utils/financeWarnings";
 import { getColors } from "../utils/color-picker";
 import { useTheme } from "../utils/themeContext";
 
@@ -211,8 +212,9 @@ const TransactionForm = ({
       const inflated = isInflated ? numericInflatedAmount : null;
       if (kind !== "income" && kind !== "savings_use") {
         const financeData = await getCashflowData();
-        if (
-          wouldGoNegativeWithinSixMonths(financeData, {
+        const affordabilityRisk = getDeductionAffordabilityRiskWithinSixMonths(
+          financeData,
+          {
             date,
             name: name.trim(),
             amount: numericAmount,
@@ -226,19 +228,22 @@ const TransactionForm = ({
               isRecurringDeduction && recurrenceEndDate
                 ? recurrenceEndDate
                 : null,
-          })
-        ) {
-          console.warn("[Transaction warning] Deduction blocked.", {
+          },
+        );
+        if (affordabilityRisk.wouldGoNegative) {
+          console.warn("[Transaction warning] Deduction override requested.", {
             name: name.trim(),
             amount: numericAmount,
             date,
             type: "deduction",
           });
-          Alert.alert(
-            "Deduction not added",
-            "This deduction would leave the projected balance below zero within the next six months.",
+          const continueDespiteRisk = await confirmProjectedNegativeBalance(
+            affordabilityRisk,
+            financeData.salary?.currency,
           );
-          return;
+          if (!continueDespiteRisk) {
+            return;
+          }
         }
       }
 

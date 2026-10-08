@@ -18,7 +18,8 @@ import DatePicker from "../../components/datePicker/DatePicker";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import { addSubscription, createTag, deleteSubscription, getCashflowData, getLocalDate, getSubscriptions, setSubscriptionActive } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
-import { subscriptionWouldGoNegativeWithinSixMonths } from "../../utils/financeCalculations";
+import { getSubscriptionAffordabilityRiskWithinSixMonths } from "../../utils/financeCalculations";
+import { confirmProjectedNegativeBalance } from "../../utils/financeWarnings";
 import { getColors } from "../../utils/color-picker";
 import { useTheme } from "../../utils/themeContext";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
@@ -146,27 +147,29 @@ export default function SubscriptionsScreen() {
     setIsSaving(true);
     try {
       const financeData = await getCashflowData();
-      if (
-        subscriptionWouldGoNegativeWithinSixMonths(financeData, {
+      const affordabilityRisk =
+        getSubscriptionAffordabilityRiskWithinSixMonths(financeData, {
           ...subscription,
           account_id: accountId,
           tag_id: tagId,
           start_date: startDate,
           interval_days: Number(intervalDays),
-        })
-      ) {
-        console.warn("[Subscription warning] New subscription blocked.", {
+        });
+      if (affordabilityRisk.wouldGoNegative) {
+        console.warn("[Subscription warning] Override requested.", {
           name: subscription.name,
           amount: subscription.amount,
           startDate,
           frequency,
           intervalDays: Number(intervalDays),
         });
-        Alert.alert(
-          "Subscription not added",
-          "This recurring deduction would make your projected balance negative within six months.",
+        const continueDespiteRisk = await confirmProjectedNegativeBalance(
+          affordabilityRisk,
+          financeData.salary?.currency,
         );
-        return;
+        if (!continueDespiteRisk) {
+          return;
+        }
       }
       Keyboard.dismiss();
       await addSubscription(subscription);
@@ -200,23 +203,26 @@ export default function SubscriptionsScreen() {
     try {
       if (!subscription.active) {
         const financeData = await getCashflowData();
-        if (
-          subscriptionWouldGoNegativeWithinSixMonths(financeData, {
+        const affordabilityRisk =
+          getSubscriptionAffordabilityRiskWithinSixMonths(financeData, {
             ...subscription,
             active: true,
-          })
-        ) {
-          console.warn("[Subscription warning] Reactivation blocked.", {
+          });
+        if (affordabilityRisk.wouldGoNegative) {
+          console.warn("[Subscription warning] Reactivation override requested.", {
             name: subscription.name,
             amount: subscription.amount,
             startDate: subscription.start_date,
             frequency: subscription.frequency,
           });
-          Alert.alert(
-            "Subscription not enabled",
-            "Reactivating this subscription would make your projected balance negative within six months.",
+          const continueDespiteRisk = await confirmProjectedNegativeBalance(
+            affordabilityRisk,
+            financeData.salary?.currency,
+            "Resume anyways",
           );
-          return;
+          if (!continueDespiteRisk) {
+            return;
+          }
         }
       }
       await setSubscriptionActive(subscription.id, !subscription.active);

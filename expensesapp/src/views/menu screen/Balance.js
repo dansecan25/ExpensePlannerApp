@@ -39,7 +39,9 @@ const isSalaryIncome = event =>
       .some(tag => tag.trim().toLowerCase() === "salary"));
 
 const movementType = event =>
-  event.kind === "savings_use"
+  event.account_transfer
+    ? "account transfer"
+    : event.kind === "savings_use"
     ? "savings use"
     : event.subscription
     ? "subscription"
@@ -93,7 +95,7 @@ export default function BalanceScreen() {
     return dashboardProjection.events
       .filter(
         event =>
-          !event.account_transfer &&
+          (!event.account_transfer || event.kind === "transfer_out") &&
           event.date >= selectedDateRange.from &&
           event.date <= selectedDateRange.to,
       )
@@ -102,7 +104,7 @@ export default function BalanceScreen() {
           return event.kind === "income";
         }
         if (movementFilter === "deduction") {
-          return event.kind !== "income";
+          return event.kind !== "income" && !event.account_transfer;
         }
         return true;
       })
@@ -125,7 +127,7 @@ export default function BalanceScreen() {
           new Date(),
         )
       : null;
-  const firstZeroBalanceMonth = useMemo(() => {
+  const firstNegativeBalanceWarning = useMemo(() => {
     if (!projection) {
       return null;
     }
@@ -133,40 +135,89 @@ export default function BalanceScreen() {
     for (const entry of projection.balances) {
       monthEndBalances.set(entry.date.slice(0, 7), entry.balance);
     }
+    const warnings = [];
     for (const [month, balance] of monthEndBalances) {
       if (balance <= 0) {
-        return { month, balance };
+        const [year, monthNumber] = month.split("-").map(Number);
+        const lastDay = new Date(year, monthNumber, 0).getDate();
+        warnings.push({
+          date: `${month}-${String(lastDay).padStart(2, "0")}`,
+          totalBalance: balance,
+        });
+        break;
       }
     }
-    return null;
+    const firstNegativeAccountDate = projection.negativeAccounts[0]?.date;
+    if (firstNegativeAccountDate) {
+      warnings.push({ date: firstNegativeAccountDate });
+    }
+    if (!warnings.length) {
+      return null;
+    }
+    const firstDate = warnings.reduce(
+      (earliest, warning) =>
+        warning.date < earliest ? warning.date : earliest,
+      warnings[0].date,
+    );
+    return {
+      date: firstDate,
+      totalBalance: warnings.find(
+        warning => warning.date === firstDate && "totalBalance" in warning,
+      )?.totalBalance,
+      negativeAccounts: projection.negativeAccounts.filter(
+        account => account.date === firstDate,
+      ),
+    };
   }, [projection]);
-  const lastAlertedMonth = useRef(null);
+  const lastAlertedWarning = useRef(null);
 
   useEffect(() => {
-    if (!firstZeroBalanceMonth) {
-      lastAlertedMonth.current = null;
+    if (!firstNegativeBalanceWarning) {
+      lastAlertedWarning.current = null;
       return;
     }
-    if (lastAlertedMonth.current === firstZeroBalanceMonth.month) {
+    const warningKey = [
+      firstNegativeBalanceWarning.date,
+      firstNegativeBalanceWarning.totalBalance,
+      ...firstNegativeBalanceWarning.negativeAccounts.map(
+        account => account.accountId,
+      ),
+    ].join(":");
+    if (lastAlertedWarning.current === warningKey) {
       return;
     }
-    lastAlertedMonth.current = firstZeroBalanceMonth.month;
-    const [year, month] = firstZeroBalanceMonth.month.split("-").map(Number);
-    const monthLastDay = new Date(year, month, 0).getDate();
-    const monthEndDate = `${firstZeroBalanceMonth.month}-${String(
-      monthLastDay,
-    ).padStart(2, "0")}`;
-    console.warn("[Balance warning] Projected monthly balance is zero or below.", {
-      month: firstZeroBalanceMonth.month,
-      monthEndBalance: firstZeroBalanceMonth.balance,
+    lastAlertedWarning.current = warningKey;
+    console.warn("[Balance warning] Projected balance is zero or below.", {
+      warningDate: firstNegativeBalanceWarning.date,
+      totalBalance: firstNegativeBalanceWarning.totalBalance,
+      negativeAccounts: firstNegativeBalanceWarning.negativeAccounts,
       currentAvailableBalance: projection?.todayBalance,
       availableBalanceInTwoYears: projection?.endingBalance,
     });
+    const warningDetails = [];
+    if (firstNegativeBalanceWarning.totalBalance !== undefined) {
+      warningDetails.push(
+        `Your projected total balance is ${money(
+          firstNegativeBalanceWarning.totalBalance,
+          currency,
+        )}.`,
+      );
+    }
+    for (const account of firstNegativeBalanceWarning.negativeAccounts) {
+      warningDetails.push(
+        `${account.accountName} is projected to be ${money(
+          account.balance,
+          currency,
+        )}.`,
+      );
+    }
     Alert.alert(
       "Balance warning",
-      `Your projected balance is zero or below at the end of ${formatDisplayDate(monthEndDate)}. Review your planned expenses and income.`,
+      `${warningDetails.join("\n")} This is projected for ${formatDisplayDate(
+        firstNegativeBalanceWarning.date,
+      )}. Review your planned expenses and income.`,
     );
-  }, [firstZeroBalanceMonth]);
+  }, [currency, firstNegativeBalanceWarning, projection]);
 
   useEffect(() => {
     console.log("[Balance movement dashboard]", {
@@ -452,7 +503,14 @@ export default function BalanceScreen() {
               {rangeMovements.map(event => {
                 const type = movementType(event);
                 const amount = Number(event.amount ?? event.value ?? 0);
-                const sign = event.kind === "income" ? "+" : "-";
+                const projectedAmount = Number(
+                  event.inflated_value ?? amount,
+                );
+                const sign = event.account_transfer
+                  ? "↔ "
+                  : event.kind === "income"
+                    ? "+"
+                    : "-";
                 const highlightedSalary = isSalaryIncome(event);
                 return (
                   <TouchableOpacity
@@ -467,13 +525,23 @@ export default function BalanceScreen() {
                   >
                     <CustomText
                       type="body1"
-                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(amount, currency)}${type === "subscription" ? " · Subscription" : type === "recurring deduction" ? " · Recurring deduction" : ""}`}
+                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(event.kind === "expense" ? projectedAmount : amount, currency)}${type === "subscription" ? " · Subscription" : type === "recurring deduction" ? " · Recurring deduction" : type === "account transfer" ? " · Account transfer" : ""}`}
                       style={[
                         dashboardStyles.movementText,
                         highlightedSalary && dashboardStyles.salaryIncome,
                         type === "subscription" && dashboardStyles.subscription,
                       ]}
                     />
+                    {event.kind === "expense" &&
+                    event.inflated_value !== null &&
+                    event.inflated_value !== undefined &&
+                    projectedAmount !== amount ? (
+                      <CustomText
+                        type="body5"
+                        text={`Actual Value: ${money(amount, currency)}`}
+                        style={dashboardStyles.actualValue}
+                      />
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -533,6 +601,10 @@ const dashboardStyles = StyleSheet.create({
   },
   movementText: {
     marginTop: 0,
+  },
+  actualValue: {
+    marginTop: 2,
+    paddingHorizontal: 8,
   },
   salaryIncome: {
     color: "#248A3D",

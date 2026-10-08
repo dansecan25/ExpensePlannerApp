@@ -75,16 +75,29 @@ Adding an expense from today's Home section dates it to the user's current local
 date. Saved data includes the date.
 
 Money variations provide a more general transaction entry for any past, present,
-or future date. A variation can be income received (increases balance) or a
-deduction (purchase, subscription charge, or other outflow; decreases balance).
-Deduction forms may mark an expense as recurring weekly, monthly, or yearly.
+or future date. A variation can be income received (increases balance), a
+deduction (purchase or other outflow; decreases balance), or savings (moves
+money out of the selected account and reserves it for a savings purpose).
+Deduction and savings forms may mark an entry as recurring weekly, monthly, or
+yearly.
 The selected date is the first occurrence. Later monthly or yearly occurrences
 clamp to the final valid day of a shorter month (for example, the 30th becomes
 the 28th or 29th in February), while subsequent months continue using the
 original day where possible. A recurrence can end on an optional date or be
 stopped from Money variations. The original deduction remains in history when
 future recurrence is stopped. Recurring deductions are independent of
-subscriptions and participate in balances and projections.
+subscriptions and participate in balances and projections. Deleting a
+transaction requires confirmation; deleting a recurring source removes that
+schedule and its derived occurrences. When an expense is inflated, show the
+inflated amount used for projection and the actual amount for reference.
+
+The Money Variations list shows persisted transactions dated from the user's
+local date one year ago through December 31 of the current year. Group entries
+under month-and-year headings. Keep recurring source transactions in a separate
+section from one-time transactions so they remain easy to find. Show the
+projected/inflated amount and, when present, the actual amount. A stopped
+recurrence remains visible with its stopped state; deleting a recurring source
+requires confirmation and removes its schedule and calculated occurrences.
 
 ## Accounts and tags
 
@@ -102,6 +115,9 @@ subscriptions and participate in balances and projections.
   occurrences through the stop date and cannot be undone; create a new transfer
   to resume. Deleting a transfer removes its record and all derived occurrences,
   including historical occurrences.
+- Deleting an account requires confirmation. Reassign its opening balance and
+  linked transactions/scheduled charges to another account when one exists;
+  do not silently discard money movements.
 - Tags group related expenses and subscriptions. Users can search/select an
   existing tag or type a new tag name and press Enter to create it. New tags
   support a preset or hexadecimal color.
@@ -111,7 +127,10 @@ subscriptions and participate in balances and projections.
 
 Users can create recurring deductions assigned to an account. Recurrence supports
 monthly, annual, and custom schedules, with a specified deduction day/date pattern.
-Scheduled deductions must participate in forward cash-flow projections.
+Scheduled deductions must participate in forward cash-flow projections from the
+configured start date. Users can pause/resume or delete a subscription; creating
+or resuming one must check its projected effect on the combined balance and
+assigned account over the next six months.
 
 ## Balance and savings
 
@@ -121,9 +140,12 @@ balance as of now.
 It also projects dated income and outflows, including planned future expenses and
 subscription deductions. Do not show a month-by-month projection list. Instead,
 show an alert when the projected closing balance for any month from the current
-month through the next two years is zero or below. Before accepting a new
-deduction, reject it when the resulting projection would put the user in a
-negative balance within the next six months.
+month through the next two years is zero or below. Also warn if an individual
+account is projected to become negative, even when the combined balance remains
+positive. Before accepting a new deduction, warn when the resulting projection
+would put the combined balance or its assigned account below zero within the
+next six months. Let users cancel with "OK" or explicitly override the warning
+with "Add anyways" if they have a contingency plan.
 
 The Balance view shows the total saved amount and a scrollable savings section.
 Savings is a distinct transaction type, not a deduction checkbox. A savings
@@ -131,26 +153,32 @@ contribution is deducted from its selected account and reserved as savings.
 Savings entries are grouped by their tag so users can track separate purposes
 (for example, different savings goals).
 
-The Savings Movements screen lists savings additions by group and account,
-allows users to record how much of a contribution has been used, and supports
-deleting a mistaken contribution or a group. Users can create a savings group
-from this screen. Deleting a group removes its tag from savings additions but
-preserves the movements as untagged savings. Show savings available as of today,
-counting a recurring contribution only on its scheduled occurrence date and
-reducing the saved amount by recorded usage. Also list recurring savings and
-their assigned accounts.
+The Savings Movements screen lists savings additions by group and account. Show
+the total amount available as of today and available savings by account. Count a
+recurring contribution only on each scheduled occurrence date, never before its
+first date or after its end/stop date. List recurring contributions separately,
+including their account and whether they are ongoing, ended, or stopped.
+
+Allow the user to create a savings group from this screen and assign an existing
+tag to a previously untagged savings movement. A group shows its available
+amount, additions, recurring occurrences, and expenses recorded against the
+group. Users can record how much of a savings contribution has been used; reject
+usage greater than savings available in that account. Recording an expense from
+savings identifies where reserved savings were spent and must not deduct the
+same funds from the account a second time. Deleting a contribution or group
+requires confirmation. Deleting a group removes its tag from savings additions
+but preserves the contributions as untagged savings.
 
 At the end of the Balance view, provide a movement dashboard with all-year
-(current rolling window) as the default date range: from today's date one year
-ago through the last day of the current year. Group movements by month and year,
-and show repeating transactions in a separate list from one-time transactions.
-Also provide a month selector and a custom date range, with the displayed list
-limited to the same rolling window. Allow filtering the movement list to all
-movements, deductions, or incomes. Show the selected range's ending balance and,
-when a movement is selected, the balance on that movement's date, broken down by
-account and followed by the total. Assign transactions without a selected
-account to Main account; explicitly selected accounts such as BAC retain their
-own balances.
+(current calendar year) as the default date range. Also provide a month selector
+and a custom date range. Allow filtering the dashboard to all movements,
+deductions, or incomes. Show the selected range's ending balance and, when a
+movement is selected, the balance on that movement's date, broken down by
+account and followed by the total. Show account transfers only once in the
+movement list, but include both sides in account balances while keeping the
+combined balance unchanged. Assign transactions without a selected account to
+Main account; explicitly selected accounts such as BAC retain their own
+balances.
 Highlight salary income (including manually recorded income tagged "Salary") in
 green and subscriptions in brown.
 
@@ -164,8 +192,9 @@ The hamburger menu should open and display correctly and provide access to:
 - Money variations
 - Subscriptions
 - Balance (including savings)
-- Settings (including fixed monthly salary updates, factory reset, JSON database
-  backup export, and full database restore from a JSON backup)
+- Settings (including income/pay schedule changes, Savings mode, appearance,
+  factory reset, JSON database backup export, and full database restore from a
+  JSON backup)
 
 Settings also lets users choose light appearance, dark appearance, or follow the
 device's system appearance. The choice persists with the database and defaults to
@@ -173,6 +202,13 @@ the device setting unless the user explicitly selects light or dark. Keep the
 existing typeface unchanged. Use the app's in-house modal dropdowns and single-date
 calendar picker rather than native date text entry or third-party dropdown
 components.
+
+Export a JSON backup containing every app database table and its stored records,
+including configuration, salary schedules/deductions, accounts, tags,
+transactions, subscriptions, transfers, and savings data. Import validates the
+backup format and, only after explicit confirmation, replaces all current
+database data with the contents of the selected backup. Factory reset likewise
+requires confirmation and clears persisted configuration and finance data.
 
 ## Cash-flow calculation reference
 
@@ -220,7 +256,9 @@ components use React Native and the current shared text/button controls; extend
 those conventions where practical.
 
 Display dates throughout the app as `DD MON YYYY` (for example, `07 Oct 2026`).
-Keep editable date inputs in their existing `YYYY-MM-DD` format.
+Use the in-house modal calendar to select a single date; persist and exchange
+dates as local-calendar `YYYY-MM-DD` values without timezone shifts. Use the
+in-house modal dropdown for selections. Do not change the existing typeface.
 
 Existing installations should be migrated in place when adding finance columns and
 tables. Keep legacy expense rows readable as deductions, preserve legacy savings

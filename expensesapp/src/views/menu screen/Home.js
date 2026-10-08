@@ -63,17 +63,6 @@ export default function HomeScreen({ navigation }) {
           event =>
             !event.account_transfer || event.kind === "transfer_out",
         )
-        .filter(
-          event =>
-            !(event.subscription || event.recurring_deduction) ||
-            !data.expenses.some(
-              transaction =>
-                transaction.kind === "expense" &&
-                transaction.date.slice(0, 10) === event.date &&
-                transaction.name.trim().toLocaleLowerCase() ===
-                  event.name.trim().toLocaleLowerCase(),
-            ),
-        )
         .map((event, index) => ({
           ...event,
           id:
@@ -144,7 +133,10 @@ export default function HomeScreen({ navigation }) {
   );
   const monthTotal = monthOutflowRows.reduce(
     (sum, movement) =>
-      sum + Number(movement.inflated_value ?? movement.amount ?? 0),
+      sum +
+      Number(
+        movement.inflated_value ?? movement.amount ?? movement.value ?? 0,
+      ),
     0,
   );
   const monthLabels = [...monthExpenses]
