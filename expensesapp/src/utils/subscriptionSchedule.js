@@ -22,6 +22,24 @@ export const getSubscriptionOccurrenceDates = (
   fromDate,
   throughDate,
 ) => {
+  const excluded = new Set(
+    String(subscription.excluded_dates || "")
+      .split(",")
+      .map(date => date.trim())
+      .filter(Boolean),
+  );
+  return computeSubscriptionOccurrenceDates(
+    subscription,
+    fromDate,
+    throughDate,
+  ).filter(date => !excluded.has(date));
+};
+
+const computeSubscriptionOccurrenceDates = (
+  subscription,
+  fromDate,
+  throughDate,
+) => {
   const from = dateAtNoon(fromDate);
   const through = dateAtNoon(throughDate);
   const start = dateAtNoon(subscription.start_date);

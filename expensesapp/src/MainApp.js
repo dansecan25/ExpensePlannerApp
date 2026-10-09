@@ -14,6 +14,7 @@ import GeneralExpenseAddScreen from './views/GeneralExpenseAdd.js';
 import { Context } from './utils/store.js';
 import { observer } from 'mobx-react-lite';
 import { ThemeContext } from './utils/themeContext.js';
+import EditMovementScreen from './views/EditMovementScreen.js';
 
 const Stack = createNativeStackNavigator();
 
@@ -117,6 +118,11 @@ const MainApp = observer(() => {
         <Stack.Screen name="Add general expense">
           {({ navigation }) => (
             <GeneralExpenseAddScreen navigation={navigation} />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="Edit movement">
+          {({ navigation, route }) => (
+            <EditMovementScreen navigation={navigation} route={route} />
           )}
         </Stack.Screen>
       </Stack.Navigator>

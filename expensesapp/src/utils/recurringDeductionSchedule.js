@@ -24,7 +24,26 @@ const dateInPeriod = (start, period, frequency) => {
   return new Date(year, month, Math.min(start.getDate(), lastDay), 12);
 };
 
+export const parseExcludedDates = value =>
+  new Set(
+    String(value || "")
+      .split(",")
+      .map(date => date.trim())
+      .filter(Boolean),
+  );
+
 export const getRecurringDeductionOccurrenceDates = (
+  deduction,
+  fromDate,
+  throughDate,
+) =>
+  computeRecurringDeductionOccurrenceDates(
+    deduction,
+    fromDate,
+    throughDate,
+  ).filter(date => !parseExcludedDates(deduction.excluded_dates).has(date));
+
+const computeRecurringDeductionOccurrenceDates = (
   deduction,
   fromDate,
   throughDate,

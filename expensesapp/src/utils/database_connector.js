@@ -293,6 +293,12 @@ export const initDatabase = async () => {
     "INTEGER NOT NULL DEFAULT 1",
   );
   await ensureColumn(db, "account_transfers", "recurrence_stopped_date", "TEXT");
+  await ensureColumn(db, "months_expenses", "excluded_dates", "TEXT");
+  await ensureColumn(db, "subscriptions", "excluded_dates", "TEXT");
+  await ensureColumn(db, "subscriptions", "description", "TEXT");
+  await ensureColumn(db, "subscriptions", "inflated_value", "REAL");
+  await ensureColumn(db, "account_transfers", "excluded_dates", "TEXT");
+  await ensureColumn(db, "salary", "excluded_dates", "TEXT");
   await db.execute(`
     UPDATE months_expenses
     SET created_at = CURRENT_TIMESTAMP
@@ -1392,4 +1398,494 @@ export const replaceDatabaseFromBackup = async backupContent => {
   } finally {
     await db.executeAsync("PRAGMA foreign_keys = ON;");
   }
+};
+
+/* ------------------------------------------------------------------ */
+/* Movement editing (Balance > movement dashboard > pencil button)     */
+/* ------------------------------------------------------------------ */
+
+const MOVEMENT_KINDS = ["income", "expense", "savings", "savings_use"];
+
+const dateParts = value => value.slice(0, 10).split("-").map(Number);
+
+const daysBetweenDates = (from, to) => {
+  const [fromYear, fromMonth, fromDay] = dateParts(from);
+  const [toYear, toMonth, toDay] = dateParts(to);
+  return Math.round(
+    (Date.UTC(toYear, toMonth - 1, toDay) -
+      Date.UTC(fromYear, fromMonth - 1, fromDay)) /
+      86400000,
+  );
+};
+
+const addDaysToDate = (value, days) => {
+  const [year, month, day] = dateParts(value);
+  return getLocalDate(new Date(year, month - 1, day + days, 12));
+};
+
+const splitExcludedDates = value =>
+  String(value || "")
+    .split(",")
+    .map(date => date.trim())
+    .filter(Boolean);
+
+const EXCLUDABLE_TABLES = {
+  expense: "months_expenses",
+  subscription: "subscriptions",
+  transfer: "account_transfers",
+  salary: "salary",
+};
+
+const addExcludedDate = async (db, sourceType, sourceId, date) => {
+  const table = EXCLUDABLE_TABLES[sourceType];
+  const result = await db.execute(
+    `SELECT excluded_dates FROM ${table} WHERE id = ?;`,
+    [sourceId],
+  );
+  if (!result.rows.length) {
+    throw new Error("The original movement could not be found.");
+  }
+  const dates = new Set(splitExcludedDates(result.rows.item(0).excluded_dates));
+  dates.add(date);
+  await db.executeAsync(`UPDATE ${table} SET excluded_dates = ? WHERE id = ?;`, [
+    [...dates].sort().join(","),
+    sourceId,
+  ]);
+};
+
+const shiftExcludedDates = async (db, sourceType, sourceId, existing, delta) => {
+  if (!delta || !existing.excluded_dates) {
+    return;
+  }
+  await db.executeAsync(
+    `UPDATE ${EXCLUDABLE_TABLES[sourceType]} SET excluded_dates = ? WHERE id = ?;`,
+    [
+      splitExcludedDates(existing.excluded_dates)
+        .map(date => addDaysToDate(date, delta))
+        .sort()
+        .join(","),
+      sourceId,
+    ],
+  );
+};
+
+const readSingleRow = async (db, query, params) => {
+  const result = await db.execute(query, params);
+  return result.rows.length ? result.rows.item(0) : null;
+};
+
+const validateMovementValues = values => {
+  const amount = Number(values.amount);
+  const inflated =
+    values.inflatedValue === undefined ||
+    values.inflatedValue === null ||
+    values.inflatedValue === ""
+      ? null
+      : Number(values.inflatedValue);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Enter a positive amount.");
+  }
+  if (!isValidLocalDate(values.date)) {
+    throw new Error("Enter a valid date.");
+  }
+  if (inflated !== null && (!Number.isFinite(inflated) || inflated < amount)) {
+    throw new Error("The projected amount must be at least the actual amount.");
+  }
+  return { amount, inflated };
+};
+
+const validateRecurrence = (frequency, endDate, startDate, kind) => {
+  if (!frequency) {
+    return;
+  }
+  if (
+    !["weekly", "monthly", "yearly"].includes(frequency) ||
+    kind === "income" ||
+    kind === "savings_use"
+  ) {
+    throw new Error(
+      "Only deductions and savings can repeat. Turn off repeating or change the type.",
+    );
+  }
+  if (endDate && (!isValidLocalDate(endDate) || endDate < startDate)) {
+    throw new Error("Choose a valid recurrence end date.");
+  }
+};
+
+const savingsFlagsFor = (kind, existing) => {
+  if (existing && existing.kind === kind) {
+    return {
+      isSavings: Number(existing.is_savings) === 1 ? 1 : 0,
+      isSavingsWithdrawal: Number(existing.is_savings_withdrawal) === 1 ? 1 : 0,
+    };
+  }
+  return {
+    isSavings: kind === "savings" ? 1 : 0,
+    isSavingsWithdrawal: kind === "savings_use" ? 1 : 0,
+  };
+};
+
+const replaceExpenseTags = async (db, expenseId, tagIds) => {
+  if (!Array.isArray(tagIds)) {
+    return;
+  }
+  await db.executeAsync("DELETE FROM expense_tags WHERE expense_id = ?;", [
+    expenseId,
+  ]);
+  for (const tagId of tagIds) {
+    await db.executeAsync(
+      "INSERT OR IGNORE INTO expense_tags (expense_id, tag_id) VALUES (?, ?);",
+      [expenseId, tagId],
+    );
+  }
+};
+
+const insertStandaloneExpense = async (db, values, existing) => {
+  const { amount, inflated } = validateMovementValues(values);
+  if (!MOVEMENT_KINDS.includes(values.kind)) {
+    throw new Error("Choose a valid transaction type.");
+  }
+  const name = String(values.name || "").trim();
+  if (!name) {
+    throw new Error("Enter a name.");
+  }
+  const flags = savingsFlagsFor(values.kind, existing);
+  const accountId = values.accountId ?? (await getDefaultAccountId(db));
+  const result = await db.executeAsync(
+    `INSERT INTO months_expenses
+      (date, name, description, value, inflated_value, account_id, kind,
+       is_savings, is_savings_withdrawal)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    [
+      values.date,
+      name,
+      String(values.description || "").trim() || null,
+      amount,
+      values.kind === "expense" ? inflated : null,
+      accountId,
+      values.kind,
+      flags.isSavings,
+      flags.isSavingsWithdrawal,
+    ],
+  );
+  await replaceExpenseTags(db, result.insertId, values.tagIds || []);
+  return result.insertId;
+};
+
+const updateExpenseRow = async (db, existing, values, startDate) => {
+  const { amount, inflated } = validateMovementValues({
+    ...values,
+    date: startDate,
+  });
+  if (!MOVEMENT_KINDS.includes(values.kind)) {
+    throw new Error("Choose a valid transaction type.");
+  }
+  const name = String(values.name || "").trim();
+  if (!name) {
+    throw new Error("Enter a name.");
+  }
+  const frequency = values.recurrenceFrequency || null;
+  const endDate = frequency ? values.recurrenceEndDate || null : null;
+  validateRecurrence(frequency, endDate, startDate, values.kind);
+  const wasRecurring = Boolean(existing.recurrence_frequency);
+  const flags = savingsFlagsFor(values.kind, existing);
+  await db.executeAsync(
+    `UPDATE months_expenses
+     SET date = ?, name = ?, description = ?, value = ?, inflated_value = ?,
+         account_id = ?, kind = ?, is_savings = ?, is_savings_withdrawal = ?,
+         recurrence_frequency = ?, recurrence_end_date = ?,
+         recurrence_active = ?, recurrence_stopped_date = ?
+     WHERE id = ?;`,
+    [
+      startDate,
+      name,
+      String(values.description || "").trim() || null,
+      amount,
+      values.kind === "expense" ? inflated : null,
+      values.accountId ?? existing.account_id ?? (await getDefaultAccountId(db)),
+      values.kind,
+      flags.isSavings,
+      flags.isSavingsWithdrawal,
+      frequency,
+      endDate,
+      frequency && wasRecurring ? existing.recurrence_active ?? 1 : 1,
+      frequency && wasRecurring ? existing.recurrence_stopped_date : null,
+      existing.id,
+    ],
+  );
+  await replaceExpenseTags(db, existing.id, values.tagIds);
+  await shiftExcludedDates(
+    db,
+    "expense",
+    existing.id,
+    existing,
+    daysBetweenDates(existing.date, startDate),
+  );
+};
+
+const insertStandaloneTransfer = async (db, values) => {
+  await db.executeAsync(
+    `INSERT INTO account_transfers
+      (date, from_account_id, to_account_id, amount, description)
+     VALUES (?, ?, ?, ?, ?);`,
+    [
+      values.date,
+      Number(values.fromAccountId),
+      Number(values.toAccountId),
+      Number(values.amount),
+      String(values.description || "").trim() || null,
+    ],
+  );
+};
+
+const validateTransferValues = values => {
+  validateMovementValues(values);
+  if (
+    !Number.isInteger(Number(values.fromAccountId)) ||
+    !Number.isInteger(Number(values.toAccountId)) ||
+    Number(values.fromAccountId) < 1 ||
+    Number(values.toAccountId) < 1 ||
+    Number(values.fromAccountId) === Number(values.toAccountId)
+  ) {
+    throw new Error("Choose two different accounts for the transfer.");
+  }
+};
+
+/**
+ * Saves an edit made from the Edit movement screen.
+ *  sourceType: "expense" | "subscription" | "transfer" | "salary"
+ *  scope: "instance" (only the selected occurrence) | "all" (whole series)
+ *  occurrenceDate: the date of the occurrence that was opened
+ * "all" on a series shifts the series start by the same number of days the
+ * opened occurrence was moved, so editing the date of one occurrence moves
+ * every occurrence.
+ */
+export const saveMovementEdit = async ({
+  sourceType,
+  sourceId,
+  scope,
+  occurrenceDate,
+  values,
+}) => {
+  const db = getDB();
+  const id = Number(sourceId);
+  if (sourceType === "expense") {
+    const existing = await readSingleRow(
+      db,
+      "SELECT * FROM months_expenses WHERE id = ?;",
+      [id],
+    );
+    if (!existing) {
+      throw new Error("The movement could not be found.");
+    }
+    const recurring = Boolean(existing.recurrence_frequency);
+    if (!recurring || scope === "all") {
+      const startDate = recurring
+        ? addDaysToDate(
+            existing.date,
+            daysBetweenDates(occurrenceDate, values.date),
+          )
+        : values.date;
+      await updateExpenseRow(db, existing, values, startDate);
+      return;
+    }
+    await insertStandaloneExpense(db, values, existing);
+    await addExcludedDate(db, "expense", id, occurrenceDate);
+    return;
+  }
+
+  if (sourceType === "subscription") {
+    const existing = await readSingleRow(
+      db,
+      "SELECT * FROM subscriptions WHERE id = ?;",
+      [id],
+    );
+    if (!existing) {
+      throw new Error("The subscription could not be found.");
+    }
+    if (scope === "instance") {
+      await insertStandaloneExpense(db, values, null);
+      await addExcludedDate(db, "subscription", id, occurrenceDate);
+      return;
+    }
+    const startDate = addDaysToDate(
+      existing.start_date,
+      daysBetweenDates(occurrenceDate, values.date),
+    );
+    const { amount, inflated } = validateMovementValues({
+      ...values,
+      date: startDate,
+    });
+    const name = String(values.name || "").trim();
+    const frequency = values.frequency;
+    const intervalDays = Number(values.intervalDays);
+    if (!name) {
+      throw new Error("Enter a name.");
+    }
+    if (!["monthly", "annual", "custom"].includes(frequency)) {
+      throw new Error("Choose a valid recurrence.");
+    }
+    if (frequency === "custom" && (!Number.isInteger(intervalDays) || intervalDays < 1)) {
+      throw new Error("Custom recurrence must be at least one day.");
+    }
+    if (values.kind !== "expense" && values.kind !== "savings") {
+      throw new Error("A subscription must be a deduction or a savings contribution.");
+    }
+    await db.executeAsync(
+      `UPDATE subscriptions
+       SET name = ?, amount = ?, inflated_value = ?, description = ?,
+           account_id = ?, tag_id = ?, start_date = ?, frequency = ?,
+           interval_days = ?, is_savings = ?
+       WHERE id = ?;`,
+      [
+        name,
+        amount,
+        values.kind === "expense" ? inflated : null,
+        String(values.description || "").trim() || null,
+        values.accountId ?? existing.account_id,
+        Array.isArray(values.tagIds) ? values.tagIds[0] ?? null : existing.tag_id,
+        startDate,
+        frequency,
+        frequency === "custom" ? intervalDays : null,
+        values.kind === "savings" ? 1 : 0,
+        id,
+      ],
+    );
+    await shiftExcludedDates(
+      db,
+      "subscription",
+      id,
+      existing,
+      daysBetweenDates(existing.start_date, startDate),
+    );
+    return;
+  }
+
+  if (sourceType === "transfer") {
+    const existing = await readSingleRow(
+      db,
+      "SELECT * FROM account_transfers WHERE id = ?;",
+      [id],
+    );
+    if (!existing) {
+      throw new Error("The account transfer could not be found.");
+    }
+    validateTransferValues(values);
+    const recurring = Boolean(existing.recurrence_frequency);
+    if (recurring && scope === "instance") {
+      await insertStandaloneTransfer(db, values);
+      await addExcludedDate(db, "transfer", id, occurrenceDate);
+      return;
+    }
+    const startDate = recurring
+      ? addDaysToDate(
+          existing.date,
+          daysBetweenDates(occurrenceDate, values.date),
+        )
+      : values.date;
+    const frequency = values.recurrenceFrequency || null;
+    const endDate = frequency ? values.recurrenceEndDate || null : null;
+    if (frequency && !["weekly", "monthly", "yearly"].includes(frequency)) {
+      throw new Error("Choose a valid recurrence.");
+    }
+    if (endDate && (!isValidLocalDate(endDate) || endDate < startDate)) {
+      throw new Error("Choose a valid recurrence end date.");
+    }
+    await db.executeAsync(
+      `UPDATE account_transfers
+       SET date = ?, from_account_id = ?, to_account_id = ?, amount = ?,
+           description = ?, recurrence_frequency = ?, recurrence_end_date = ?,
+           recurrence_active = ?, recurrence_stopped_date = ?
+       WHERE id = ?;`,
+      [
+        startDate,
+        Number(values.fromAccountId),
+        Number(values.toAccountId),
+        Number(values.amount),
+        String(values.description || "").trim() || null,
+        frequency,
+        endDate,
+        frequency && recurring ? existing.recurrence_active ?? 1 : 1,
+        frequency && recurring ? existing.recurrence_stopped_date : null,
+        id,
+      ],
+    );
+    await shiftExcludedDates(
+      db,
+      "transfer",
+      id,
+      existing,
+      daysBetweenDates(existing.date, startDate),
+    );
+    return;
+  }
+
+  if (sourceType === "salary") {
+    // Salary deposits are generated from the salary schedule, so a single
+    // deposit is edited by replacing it with a standalone movement.
+    await insertStandaloneExpense(db, values, null);
+    await addExcludedDate(db, "salary", id, occurrenceDate);
+    return;
+  }
+  throw new Error("This movement cannot be edited.");
+};
+
+/**
+ * Deletes a movement from the Edit movement screen.
+ *  scope "instance": only the opened occurrence (the series keeps going)
+ *  scope "all": the record and every occurrence derived from it
+ */
+export const deleteMovement = async ({
+  sourceType,
+  sourceId,
+  scope,
+  occurrenceDate,
+}) => {
+  const db = getDB();
+  const id = Number(sourceId);
+  if (sourceType === "expense") {
+    const existing = await readSingleRow(
+      db,
+      "SELECT * FROM months_expenses WHERE id = ?;",
+      [id],
+    );
+    if (!existing) {
+      throw new Error("The movement could not be found.");
+    }
+    if (!existing.recurrence_frequency || scope === "all") {
+      await deleteExpense(id);
+    } else {
+      await addExcludedDate(db, "expense", id, occurrenceDate);
+    }
+    return;
+  }
+  if (sourceType === "subscription") {
+    if (scope === "all") {
+      await deleteSubscription(id);
+    } else {
+      await addExcludedDate(db, "subscription", id, occurrenceDate);
+    }
+    return;
+  }
+  if (sourceType === "transfer") {
+    const existing = await readSingleRow(
+      db,
+      "SELECT * FROM account_transfers WHERE id = ?;",
+      [id],
+    );
+    if (!existing) {
+      throw new Error("The account transfer could not be found.");
+    }
+    if (!existing.recurrence_frequency || scope === "all") {
+      await deleteAccountTransfer(id);
+    } else {
+      await addExcludedDate(db, "transfer", id, occurrenceDate);
+    }
+    return;
+  }
+  if (sourceType === "salary") {
+    await addExcludedDate(db, "salary", id, occurrenceDate);
+    return;
+  }
+  throw new Error("This movement cannot be deleted.");
 };

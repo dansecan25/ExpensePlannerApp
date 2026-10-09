@@ -1,5 +1,8 @@
 import { getLocalDate } from "./database_connector";
-import { getRecurringDeductionOccurrenceDates } from "./recurringDeductionSchedule";
+import {
+  getRecurringDeductionOccurrenceDates,
+  parseExcludedDates,
+} from "./recurringDeductionSchedule";
 import { getSubscriptionOccurrenceDates } from "./subscriptionSchedule";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -242,12 +245,15 @@ const createSubscriptionEvents = (subscription, fromDate, throughDate) => {
   ).map(date => ({
     date,
     amount: Number(subscription.amount),
+    inflated_value: subscription.inflated_value ?? null,
     kind: Number(subscription.is_savings) === 1 ? "savings" : "expense",
     name: subscription.name,
+    description: subscription.description ?? null,
     account_id: subscription.account_id,
     tag_id: subscription.tag_id,
     is_savings: subscription.is_savings,
     subscription: true,
+    subscription_id: subscription.id ?? null,
   }));
 };
 
@@ -319,7 +325,13 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
     ...data.expenses
       .filter(event => {
         const date = asDateString(event.date);
-        return date <= endDate;
+        return (
+          date <= endDate &&
+          !(
+            event.recurrence_frequency &&
+            parseExcludedDates(event.excluded_dates).has(date)
+          )
+        );
       })
       .map(event => ({ ...event, date: asDateString(event.date) })),
     ...data.expenses.flatMap(event =>
@@ -335,7 +347,11 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
             endDate,
           ),
     ),
-    ...createIncomeEvents(data, endDate).filter(event => event.date <= endDate),
+    ...createIncomeEvents(data, endDate).filter(
+      event =>
+        event.date <= endDate &&
+        !parseExcludedDates(data.salary?.excluded_dates).has(event.date),
+    ),
     ...data.subscriptions.flatMap(subscription =>
       createSubscriptionEvents(
         subscription,
@@ -350,7 +366,8 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
         : null;
       const recurrenceIsActive = Number(transfer.recurrence_active ?? 1) === 1;
       const keepFirstOccurrence =
-        recurrenceIsActive || !stoppedDate || firstDate <= stoppedDate;
+        (recurrenceIsActive || !stoppedDate || firstDate <= stoppedDate) &&
+        !parseExcludedDates(transfer.excluded_dates).has(firstDate);
       const repeatDates = transfer.recurrence_frequency
         ? getRecurringDeductionOccurrenceDates(
             transfer,

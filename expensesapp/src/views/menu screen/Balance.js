@@ -6,6 +6,7 @@ import {
   saveDocuments,
 } from "@react-native-documents/picker";
 import Dropdown from "../../components/customDropdown/CustomDropdown";
+import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import DatePicker from "../../components/datePicker/DatePicker";
@@ -58,7 +59,47 @@ const movementType = event =>
         ? "income"
         : "deduction";
 
+// Describes which stored record produced a projected movement so the
+// "Edit movement" screen can load and change it.
+const getEditTarget = event => {
+  const base = { occurrenceDate: event.date };
+  if (event.account_transfer) {
+    return { ...base, sourceType: "transfer", sourceId: event.transfer_id };
+  }
+  if (event.subscription) {
+    return {
+      ...base,
+      sourceType: "subscription",
+      sourceId: event.subscription_id,
+    };
+  }
+  if (event.source === "salary") {
+    return {
+      ...base,
+      sourceType: "salary",
+      sourceId: null,
+      occurrenceAmount: Number(event.amount ?? 0),
+      occurrenceAccountId: event.account_id ?? null,
+    };
+  }
+  return {
+    ...base,
+    sourceType: "expense",
+    sourceId: event.recurring_deduction ? event.source_expense_id : event.id,
+  };
+};
+
+function PencilIcon({ color = "#FFFFFF" }) {
+  return (
+    <View style={dashboardStyles.pencil}>
+      <View style={[dashboardStyles.pencilBody, { backgroundColor: color }]} />
+      <View style={[dashboardStyles.pencilTip, { borderTopColor: color }]} />
+    </View>
+  );
+}
+
 export default function BalanceScreen() {
+  const navigation = useNavigation();
   const { data, error } = useFinanceData();
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [rangeMode, setRangeMode] = useState("year");
@@ -744,15 +785,18 @@ export default function BalanceScreen() {
                     : "-";
                 const highlightedSalary = isSalaryIncome(event);
                 return (
-                  <TouchableOpacity
-                    accessibilityRole="button"
+                  <View
                     key={event.key}
-                    onPress={() => selectMovement(event)}
                     style={[
-                      dashboardStyles.movementItem,
+                      dashboardStyles.movementRow,
                       selectedMovement?.key === event.key &&
                         dashboardStyles.selectedMovement,
                     ]}
+                  >
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={() => selectMovement(event)}
+                    style={dashboardStyles.movementItem}
                   >
                     <CustomText
                       type="body1"
@@ -774,6 +818,20 @@ export default function BalanceScreen() {
                       />
                     ) : null}
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityLabel={`Edit ${event.name}`}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() =>
+                      navigation.navigate("Edit movement", {
+                        movement: getEditTarget(event),
+                      })
+                    }
+                    style={dashboardStyles.editButton}
+                  >
+                    <PencilIcon />
+                  </TouchableOpacity>
+                  </View>
                 );
               })}
               {rangeMovements.length === 0
@@ -836,10 +894,47 @@ const dashboardStyles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.16)",
   },
+  movementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 8,
+  },
   movementItem: {
+    flex: 1,
     paddingVertical: 9,
     paddingHorizontal: 8,
     borderRadius: 8,
+  },
+  editButton: {
+    width: 40,
+    height: 40,
+    marginLeft: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+    backgroundColor: "rgba(66,97,160,0.55)",
+  },
+  pencil: {
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [{ rotate: "45deg" }],
+  },
+  pencilBody: {
+    width: 5,
+    height: 11,
+    borderTopLeftRadius: 1,
+    borderTopRightRadius: 1,
+  },
+  pencilTip: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 2.5,
+    borderRightWidth: 2.5,
+    borderTopWidth: 5,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
   },
   selectedMovement: {
     backgroundColor: "rgba(66,97,160,0.18)",
