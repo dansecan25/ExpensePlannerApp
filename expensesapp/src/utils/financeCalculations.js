@@ -1,3 +1,4 @@
+import { accountLabel, t } from "../i18n/i18n";
 import { getLocalDate } from "./database_connector";
 import {
   getRecurringDeductionOccurrenceDates,
@@ -54,7 +55,7 @@ export const getPreLastAvailableDay = (year, month) => {
   const date = new Date(year, month + 1, 0, 12);
   const weekday = date.getDay();
   const daysBeforeMonthEnd = {
-    0: 4,
+    0: 3,
     1: 3,
     2: 1,
     3: 1,
@@ -224,7 +225,7 @@ const createIncomeEvents = (data, projectionThroughDate) => {
           date,
           amount: deposit.amount,
           kind: "income",
-          name: "Salary",
+          name: t("Salary"),
           source: "salary",
           account_id: current.account_id ?? salaryAccountId,
         });
@@ -248,6 +249,8 @@ const createSubscriptionEvents = (subscription, fromDate, throughDate) => {
     inflated_value: subscription.inflated_value ?? null,
     kind: Number(subscription.is_savings) === 1 ? "savings" : "expense",
     name: subscription.name,
+    tags: subscription.tag_name ?? "",
+    tag_ids: subscription.tag_id ? String(subscription.tag_id) : "",
     description: subscription.description ?? null,
     account_id: subscription.account_id,
     tag_id: subscription.tag_id,
@@ -268,6 +271,7 @@ const createRecurringDeductionEvents = (deduction, fromDate, throughDate) =>
     inflated_value: deduction.inflated_value,
     kind: deduction.kind === "savings" ? "savings" : "expense",
     name: deduction.name,
+    description: deduction.description ?? null,
     account_id: deduction.account_id,
     recurrence_frequency: deduction.recurrence_frequency,
     recurrence_end_date: deduction.recurrence_end_date,
@@ -319,8 +323,9 @@ const getEventType = event => {
 
 const makeEvents = (data, fromDate, throughDate, extra = {}) => {
   const endDate = getLocalDate(addDays(dateAtNoon(fromDate), throughDate));
-  const recurringStartDate = `${fromDate.slice(0, 7)}-01`;
-  const subscriptionStartDate = `${fromDate.slice(0, 7)}-01`;
+  // Occurrences are generated from each item's own start date. Balances are
+  // opening balance plus every past event, so starting at the current month
+  // would forget earlier charges while salary deposits kept accumulating.
   const events = [
     ...data.expenses
       .filter(event => {
@@ -329,7 +334,9 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
           date <= endDate &&
           !(
             event.recurrence_frequency &&
-            parseExcludedDates(event.excluded_dates).has(date)
+            (parseExcludedDates(event.excluded_dates).has(date) ||
+              (event.recurrence_stopped_date &&
+                date > asDateString(event.recurrence_stopped_date)))
           )
         );
       })
@@ -343,7 +350,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
         ? []
         : createRecurringDeductionEvents(
             event,
-            recurringStartDate,
+            asDateString(event.date),
             endDate,
           ),
     ),
@@ -355,7 +362,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
     ...data.subscriptions.flatMap(subscription =>
       createSubscriptionEvents(
         subscription,
-        subscriptionStartDate,
+        asDateString(subscription.start_date),
         endDate,
       ),
     ),
@@ -371,7 +378,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
       const repeatDates = transfer.recurrence_frequency
         ? getRecurringDeductionOccurrenceDates(
             transfer,
-            recurringStartDate,
+            firstDate,
             endDate,
           )
         : [];
@@ -384,7 +391,9 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
           date,
           amount: Number(transfer.amount),
           kind: "transfer_out",
-          name: `Transfer to ${transfer.to_account_name || "account"}`,
+          name: t("Transfer to {account}", {
+            account: accountLabel(transfer.to_account_name) || t("account"),
+          }),
           account_id: transfer.from_account_id,
           account_transfer: true,
           transfer_id: transfer.id,
@@ -394,7 +403,9 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
           date,
           amount: Number(transfer.amount),
           kind: "transfer_in",
-          name: `Transfer from ${transfer.from_account_name || "account"}`,
+          name: t("Transfer from {account}", {
+            account: accountLabel(transfer.from_account_name) || t("account"),
+          }),
           account_id: transfer.to_account_id,
           account_transfer: true,
           transfer_id: transfer.id,
@@ -412,7 +423,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
         events.push(
           ...createRecurringDeductionEvents(
             candidate,
-            recurringStartDate,
+            candidateDate,
             endDate,
           ),
         );
@@ -423,7 +434,7 @@ const makeEvents = (data, fromDate, throughDate, extra = {}) => {
     events.push(
       ...createSubscriptionEvents(
         { ...extra.subscription, active: true },
-        subscriptionStartDate,
+        asDateString(extra.subscription.start_date),
         endDate,
       ),
     );
@@ -450,8 +461,13 @@ export const getCashflowProjection = (
     (sum, account) => sum + Number(account.opening_balance || 0),
     0,
   );
+  // Checked per account: a card's debt can cancel out the other openings, and
+  // a sum of zero must not fall back to the legacy salary balance.
+  const hasAccountOpenings = data.accounts.some(
+    account => Number(account.opening_balance || 0) !== 0,
+  );
   const startingBalance =
-    data.accounts.length && accountOpening !== 0
+    data.accounts.length && hasAccountOpenings
       ? accountOpening
       : Number(data.salary?.balance || 0);
   const events = makeEvents(data, today, horizonDays, extra);
@@ -470,7 +486,7 @@ export const getCashflowProjection = (
     ]),
   );
   const mainAccountId = getMainAccountId(data.accounts);
-  if (mainAccountId !== null && accountOpening === 0 && startingBalance !== 0) {
+  if (mainAccountId !== null && !hasAccountOpenings && startingBalance !== 0) {
     accountBalances.set(
       mainAccountId,
       Number(accountBalances.get(mainAccountId) || 0) + startingBalance,
@@ -511,6 +527,10 @@ export const getCashflowProjection = (
       }
     }
     for (const account of data.accounts) {
+      // A credit account being negative just means money is owed on it.
+      if (account.account_type === "credit") {
+        continue;
+      }
       const accountBalance = Number(accountBalances.get(account.id) || 0);
       if (
         accountBalance < 0 &&

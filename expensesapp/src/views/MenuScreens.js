@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { t, useLanguage } from "../i18n/i18n";
 import {
   Modal,
   Pressable,
@@ -21,15 +22,15 @@ import BalanceScreen from "./menu screen/Balance";
 import SavingsMovementsScreen from "./menu screen/Savings Movements";
 import SettingsScreen from "./menu screen/Settings";
 
-const menuOptions = [
-  { id: "HOME", label: "Home" },
-  { id: "ACCOUNTS", label: "Accounts" },
-  { id: "GROUPS", label: "Expenses by groups" },
-  { id: "VARIATIONS", label: "Money variations" },
-  { id: "SUBSCRIPTIONS", label: "Subscriptions" },
-  { id: "BALANCE", label: "Balance" },
-  { id: "SAVINGS_MOVEMENTS", label: "Savings Movements" },
-  { id: "SETTINGS", label: "Settings" },
+const getMenuOptions = () => [
+  { id: "HOME", label: t("Home") },
+  { id: "ACCOUNTS", label: t("Accounts") },
+  { id: "GROUPS", label: t("Expenses by groups") },
+  { id: "VARIATIONS", label: t("Money variations") },
+  { id: "SUBSCRIPTIONS", label: t("Subscriptions") },
+  { id: "BALANCE", label: t("Balance") },
+  { id: "SAVINGS_MOVEMENTS", label: t("Savings Movements") },
+  { id: "SETTINGS", label: t("Settings") },
 ];
 
 function MenuIcon() {
@@ -43,6 +44,7 @@ function MenuIcon() {
 }
 
 export default function MenuScreens({ navigation }) {
+  useLanguage();
   useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState("HOME");
@@ -86,7 +88,7 @@ export default function MenuScreens({ navigation }) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
-          accessibilityLabel="Open navigation menu"
+          accessibilityLabel={t("Open navigation menu")}
           accessibilityRole="button"
           hitSlop={12}
           onPress={() => setDrawerOpen(true)}
@@ -118,13 +120,13 @@ export default function MenuScreens({ navigation }) {
                 { color: getColors("secondaryText") },
               ]}
               type="header3"
-              text="Menu"
+              text={t("Menu")}
             />
             <ScrollView
               showsVerticalScrollIndicator={false}
               style={styles.drawerOptions}
             >
-              {menuOptions.map(option => (
+              {getMenuOptions().map(option => (
                 <TouchableOpacity
                   accessibilityRole="button"
                   key={option.id}
@@ -150,7 +152,7 @@ export default function MenuScreens({ navigation }) {
             </ScrollView>
           </SafeAreaView>
           <Pressable
-            accessibilityLabel="Close navigation menu"
+            accessibilityLabel={t("Close navigation menu")}
             accessibilityRole="button"
             onPress={() => setDrawerOpen(false)}
             style={styles.overlayBackground}

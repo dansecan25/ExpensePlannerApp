@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { accountLabel, t, useLanguage } from "../i18n/i18n";
 import {
   Alert,
   Pressable,
@@ -29,6 +30,7 @@ import { getDeductionAffordabilityRiskWithinSixMonths } from "../utils/financeCa
 import { confirmProjectedNegativeBalance } from "../utils/financeWarnings";
 import { getColors } from "../utils/color-picker";
 import { useTheme } from "../utils/themeContext";
+import { useKeyboardReveal } from "../utils/useKeyboardReveal";
 
 const TransactionForm = ({
   navigation,
@@ -37,7 +39,10 @@ const TransactionForm = ({
   initialTagName = "",
   initialSavingsWithdrawal = false,
 }) => {
+  useLanguage();
   useTheme();
+  const { contentInsetStyle, recordFieldLayout, revealField, scrollRef } =
+    useKeyboardReveal();
   const isVariation = mode === "variation";
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -77,7 +82,7 @@ const TransactionForm = ({
             ) || accountRows[0];
           setAccounts(
             accountRows.map(account => ({
-              label: account.name,
+              label: accountLabel(account.name),
               value: account.id,
             })),
           );
@@ -92,7 +97,7 @@ const TransactionForm = ({
         }
       } catch (error) {
         console.error("Failed to load transaction options:", error);
-        Alert.alert("Could not load accounts and tags", "Please try again.");
+        Alert.alert(t("Could not load accounts and tags"), t("Please try again."));
       }
     };
     loadOptions();
@@ -138,7 +143,7 @@ const TransactionForm = ({
       return;
     }
     if (!/^#[0-9a-fA-F]{6}$/.test(tagColor)) {
-      Alert.alert("Invalid tag color", "Enter a six-digit hexadecimal color.");
+      Alert.alert(t("Invalid tag color"), t("Enter a six-digit hexadecimal color."));
       return;
     }
 
@@ -161,8 +166,8 @@ const TransactionForm = ({
     } catch (error) {
       console.error("Failed to create transaction tag:", error);
       Alert.alert(
-        "Could not create tag",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not create tag"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     }
   };
@@ -201,8 +206,8 @@ const TransactionForm = ({
         inflationValid,
       });
       Alert.alert(
-        "Check transaction details",
-        "Enter a name, a positive amount, a valid date, and an inflated amount no lower than the actual amount.",
+        t("Check transaction details"),
+        t("Enter a name, a positive amount, a valid date, and an inflated amount no lower than the actual amount."),
       );
       return;
     }
@@ -283,8 +288,8 @@ const TransactionForm = ({
     } catch (error) {
       console.error("Failed to save transaction:", error);
       Alert.alert(
-        "Could not save transaction",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not save transaction"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsSaving(false);
@@ -293,31 +298,32 @@ const TransactionForm = ({
 
   const title =
     kind === "income"
-      ? "Record income"
+      ? t("Record income")
       : kind === "savings_use"
-        ? "Record savings used"
+        ? t("Record savings used")
         : kind === "savings"
-          ? "Add to savings"
+          ? t("Add to savings")
           : isVariation
-            ? "Record a deduction"
-            : "In what did you spend money today?";
+            ? t("Record a deduction")
+            : t("In what did you spend money today?");
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, contentInsetStyle]}
         keyboardShouldPersistTaps="handled"
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
       >
         <CustomText type="header2" text={title} style={styles.title} />
         {!initialSavingsWithdrawal && (
           <>
-            <CustomText type="body3" text="Transaction type" />
+            <CustomText type="body3" text={t("Transaction type")} />
             <View style={styles.choiceRow}>
               <CustomButton
                 onPress={() => setKind("expense")}
                 style={styles.choice}
-                text="Deduction"
+                text={t("Deduction")}
                 type={kind === "expense" ? "primary" : "secondary"}
               />
               <CustomButton
@@ -326,7 +332,7 @@ const TransactionForm = ({
                   setIsInflated(false);
                 }}
                 style={styles.choice}
-                text="Savings"
+                text={t("Savings")}
                 type={kind === "savings" ? "primary" : "secondary"}
               />
               {isVariation ? (
@@ -337,7 +343,7 @@ const TransactionForm = ({
                     setIsRecurringDeduction(false);
                   }}
                   style={styles.choice}
-                  text="Income"
+                  text={t("Income")}
                   type={kind === "income" ? "primary" : "secondary"}
                 />
               ) : null}
@@ -345,23 +351,23 @@ const TransactionForm = ({
           </>
         )}
         {isVariation && (
-          <Field label="Date (YYYY-MM-DD)">
+          <Field label={t("Date (YYYY-MM-DD)")}>
             <DatePicker
-              placeholder="Select transaction date"
+              placeholder={t("Select transaction date")}
               setValue={setDate}
               value={date}
             />
           </Field>
         )}
 
-        <Field label="Name">
+        <Field label={t("Name")}>
           <CustomTextInput
-            placeholder={kind === "income" ? "Where did the income come from?" : "What was it?"}
+            placeholder={kind === "income" ? t("Where did the income come from?") : t("What was it?")}
             setValue={setName}
             value={name}
           />
         </Field>
-        <Field label="Amount">
+        <Field label={t("Amount")}>
           <CustomTextInput
             keyboardType="decimal-pad"
             placeholder="0.00"
@@ -373,18 +379,18 @@ const TransactionForm = ({
         {kind === "expense" && (
           <>
             <View style={styles.checkRow}>
-              <CustomText type="body4" text="Inflate planned amount" />
+              <CustomText type="body4" text={t("Inflate planned amount")} />
               <CustomCheckbox
                 checked={isInflated}
-                label="Inflate"
+                label={t("Inflate")}
                 onToggle={() => setIsInflated(value => !value)}
               />
             </View>
             {isInflated && (
-              <Field label="Amount to include in projections">
+              <Field label={t("Amount to include in projections")}>
                 <CustomTextInput
                   keyboardType="decimal-pad"
-                  placeholder="Must be at least the actual amount"
+                  placeholder={t("Must be at least the actual amount")}
                   setValue={setInflatedAmount}
                   value={inflatedAmount}
                 />
@@ -399,13 +405,13 @@ const TransactionForm = ({
                 type="body4"
                 text={
                   kind === "savings"
-                    ? "Recurring savings contribution"
-                    : "Recurring deduction"
+                    ? t("Recurring savings contribution")
+                    : t("Recurring deduction")
                 }
               />
               <CustomCheckbox
                 checked={isRecurringDeduction}
-                label="Repeat"
+                label={t("Repeat")}
                 onToggle={() =>
                   setIsRecurringDeduction(value => !value)
                 }
@@ -413,18 +419,18 @@ const TransactionForm = ({
             </View>
             {isRecurringDeduction && (
               <>
-                <Field label="Repeat">
+                <Field label={t("Repeat")}>
                   <Dropdown
                     data={[
-                      { label: "Weekly", value: "weekly" },
-                      { label: "Monthly", value: "monthly" },
-                      { label: "Yearly", value: "yearly" },
+                      { label: t("Weekly"), value: "weekly" },
+                      { label: t("Monthly"), value: "monthly" },
+                      { label: t("Yearly"), value: "yearly" },
                     ]}
                     dropdownPosition="bottom"
                     keyboardAvoiding={false}
                     labelField="label"
                     onChange={item => setRecurrenceFrequency(item.value)}
-                    placeholder="Repeat frequency"
+                    placeholder={t("Repeat frequency")}
                     placeholderStyle={dropdownStyles.placeholderText}
                     selectedTextStyle={dropdownStyles.selectedText}
                     style={dropdownStyles.input}
@@ -432,10 +438,10 @@ const TransactionForm = ({
                     valueField="value"
                   />
                 </Field>
-                <Field label="End date (optional, YYYY-MM-DD)">
+                <Field label={t("End date (optional, YYYY-MM-DD)")}>
                   <DatePicker
                     allowClear
-                    placeholder="Leave blank to repeat until stopped"
+                    placeholder={t("Leave blank to repeat until stopped")}
                     setValue={setRecurrenceEndDate}
                     value={recurrenceEndDate}
                   />
@@ -445,7 +451,7 @@ const TransactionForm = ({
                     recurrenceEndDate < date) && (
                     <CustomText
                       type="body5"
-                      text="Enter a valid end date on or after the first deduction date."
+                      text={t("Enter a valid end date on or after the first deduction date.")}
                       style={styles.validationMessage}
                     />
                   )}
@@ -454,21 +460,21 @@ const TransactionForm = ({
           </>
         )}
 
-        <Field label="Description (optional)">
+        <Field label={t("Description (optional)")}>
           <CustomTextInput
-            placeholder="Extra information"
+            placeholder={t("Extra information")}
             setValue={setDescription}
             value={description}
           />
         </Field>
-        <Field label="Account">
+        <Field label={t("Account")}>
           <Dropdown
             data={accounts}
             dropdownPosition="bottom"
             labelField="label"
             keyboardAvoiding={false}
             onChange={item => setAccountId(item.value)}
-            placeholder="Select account"
+            placeholder={t("Select account")}
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={dropdownStyles.input}
@@ -478,8 +484,9 @@ const TransactionForm = ({
         </Field>
         <Field
           label={
-            kind === "savings" ? "Savings tag (optional)" : "Tag (optional)"
+            kind === "savings" ? t("Savings tag (optional)") : t("Tag (optional)")
           }
+          onLayout={recordFieldLayout}
         >
           <View style={styles.tagRow}>
             <TextInput
@@ -489,12 +496,15 @@ const TransactionForm = ({
                 setTagId(null);
                 setTagMenuOpen(true);
               }}
-              onFocus={() => setTagMenuOpen(true)}
+              onFocus={() => {
+                setTagMenuOpen(true);
+                revealField();
+              }}
               onSubmitEditing={handleTagSubmit}
               placeholder={
                 kind === "savings"
-                  ? "Search or create a savings tag"
-                  : "Search or create a tag"
+                  ? t("Search or create a savings tag")
+                  : t("Search or create a tag")
               }
               placeholderTextColor={getColors("placeholder")}
               returnKeyType="done"
@@ -528,7 +538,7 @@ const TransactionForm = ({
                 />
                 <CustomText
                   type="body5"
-                  text="Color"
+                  text={t("Color")}
                   style={{ color: getColors("secondaryText") }}
                 />
               </Pressable>
@@ -581,7 +591,7 @@ const TransactionForm = ({
             <>
               <CustomText
                 type="body5"
-                text="Press Enter to create this tag."
+                text={t("Press Enter to create this tag.")}
                 style={styles.tagHint}
               />
               {tagColorOpen && (
@@ -606,7 +616,7 @@ const TransactionForm = ({
                   <View style={styles.tagColorOptions}>
                     {tagColors.map(color => (
                       <Pressable
-                        accessibilityLabel={`Select ${color}`}
+                        accessibilityLabel={t("Select {color}", { color })}
                         accessibilityRole="button"
                         key={color}
                         onPress={() => setTagColor(color)}
@@ -632,14 +642,14 @@ const TransactionForm = ({
           style={styles.saveButton}
           text={
             isSaving
-              ? "Saving..."
+              ? t("Saving...")
               : kind === "income"
-                ? "Add income"
+                ? t("Add income")
                 : kind === "savings"
-                  ? "Add savings"
+                  ? t("Add savings")
                   : kind === "savings_use"
-                    ? "Save usage"
-                    : "Add expense"
+                    ? t("Save usage")
+                    : t("Add expense")
           }
         />
       </ScrollView>
@@ -647,9 +657,9 @@ const TransactionForm = ({
   );
 };
 
-function Field({ children, label }) {
+function Field({ children, label, onLayout }) {
   return (
-    <View style={styles.field}>
+    <View onLayout={onLayout} style={styles.field}>
       <CustomText type="body4" text={label} style={styles.fieldLabel} />
       {children}
     </View>

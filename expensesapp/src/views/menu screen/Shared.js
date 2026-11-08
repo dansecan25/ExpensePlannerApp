@@ -4,12 +4,24 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import CustomText from "../../components/customText/customText";
 import { getCashflowData } from "../../utils/database_connector";
+import { formatDisplayDate } from "../../utils/dateFormatting";
+import { t } from "../../i18n/i18n";
 
 export const money = (value, currency = "") =>
   `${Number(value || 0).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} ${currency}`.trim();
+
+export const plannedTotalLabel = (plan, currency) => {
+  const values = {
+    date: formatDisplayDate(plan.lastDate),
+    amount: money(plan.total, currency),
+  };
+  return plan.isOpenEnded
+    ? t("Planned total by {date} (ongoing): {amount}", values)
+    : t("Planned total by {date}: {amount}", values);
+};
 
 export const dateOptions = text => (
   <CustomText type="body1" text={text} style={styles.secondaryText} />

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { accountLabel, t, useLanguage } from "../../i18n/i18n";
 import {
   Alert,
   Keyboard,
@@ -24,6 +25,7 @@ import { getColors } from "../../utils/color-picker";
 import { useTheme } from "../../utils/themeContext";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 export default function SubscriptionsScreen() {
+  useLanguage();
   useTheme();
   const { data, error, reload } = useFinanceData();
   const scrollRef = useRef(null);
@@ -83,7 +85,7 @@ export default function SubscriptionsScreen() {
       return;
     }
     if (!validTagColor) {
-      Alert.alert("Invalid tag color", "Enter a six-digit hexadecimal color.");
+      Alert.alert(t("Invalid tag color"), t("Enter a six-digit hexadecimal color."));
       return;
     }
     try {
@@ -97,8 +99,8 @@ export default function SubscriptionsScreen() {
     } catch (tagError) {
       console.error("Failed to create subscription tag:", tagError);
       Alert.alert(
-        "Could not create tag",
-        tagError instanceof Error ? tagError.message : "Please try again.",
+        t("Could not create tag"),
+        tagError instanceof Error ? tagError.message : t("Please try again."),
       );
     }
   };
@@ -108,7 +110,7 @@ export default function SubscriptionsScreen() {
       setSubscriptions(await getSubscriptions());
     } catch (loadError) {
       console.error("Failed to load subscriptions:", loadError);
-      Alert.alert("Could not load subscriptions", "Please try again.");
+      Alert.alert(t("Could not load subscriptions"), t("Please try again."));
     }
   }, []);
 
@@ -191,8 +193,8 @@ export default function SubscriptionsScreen() {
     } catch (saveError) {
       console.error("Failed to save subscription:", saveError);
       Alert.alert(
-        "Could not add subscription",
-        saveError instanceof Error ? saveError.message : "Please try again.",
+        t("Could not add subscription"),
+        saveError instanceof Error ? saveError.message : t("Please try again."),
       );
     } finally {
       setIsSaving(false);
@@ -218,7 +220,7 @@ export default function SubscriptionsScreen() {
           const continueDespiteRisk = await confirmProjectedNegativeBalance(
             affordabilityRisk,
             financeData.salary?.currency,
-            "Resume anyways",
+            t("Resume anyways"),
           );
           if (!continueDespiteRisk) {
             return;
@@ -229,15 +231,15 @@ export default function SubscriptionsScreen() {
       await reloadSubscriptions();
     } catch (toggleError) {
       console.error("Failed to update subscription:", toggleError);
-      Alert.alert("Could not update subscription", "Please try again.");
+      Alert.alert(t("Could not update subscription"), t("Please try again."));
     }
   };
 
   const remove = subscription =>
-    Alert.alert("Delete subscription", `Delete ${subscription.name}?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("Delete subscription"), t("Delete {name}?", { name: subscription.name }), [
+      { text: t("Cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("Delete"),
         style: "destructive",
         onPress: async () => {
           try {
@@ -245,7 +247,7 @@ export default function SubscriptionsScreen() {
             await reloadSubscriptions();
           } catch (deleteError) {
             console.error("Failed to delete subscription:", deleteError);
-            Alert.alert("Could not delete subscription", "Please try again.");
+            Alert.alert(t("Could not delete subscription"), t("Please try again."));
           }
         },
       },
@@ -259,76 +261,79 @@ export default function SubscriptionsScreen() {
         keyboardShouldPersistTaps="handled"
         ref={scrollRef}
       >
-        <CustomText type="header2" text="Subscriptions" />
+        <CustomText type="header2" text={t("Subscriptions")} />
         <CustomText
           type="body1"
-          text="Recurring deductions are included in forward balance projections."
+          text={t("Recurring deductions are included in forward balance projections.")}
           style={styles.intro}
         />
-        <Section title="Your subscriptions">
-          {error ? dateOptions("Could not load subscription settings.") : null}
+        <Section title={t("Your subscriptions")}>
+          {error ? dateOptions(t("Could not load subscription settings.")) : null}
           {subscriptions.map(subscription => (
             <EntryCard
               key={subscription.id}
               title={`${subscription.name} · ${money(subscription.amount, currency)}`}
             >
               {dateOptions(
-                `${subscription.frequency} · from ${formatDisplayDate(subscription.start_date)}`,
+                t("{frequency} · from {date}", {
+                  frequency: t(subscription.frequency),
+                  date: formatDisplayDate(subscription.start_date),
+                }),
               )}
               {subscription.account_name
-                ? dateOptions(`Account: ${subscription.account_name}`)
+                ? dateOptions(t("Account: {name}", { name: accountLabel(subscription.account_name) }))
                 : null}
               {subscription.tag_name
-                ? dateOptions(`Tag: ${subscription.tag_name}`)
+                ? dateOptions(t("Tag: {name}", { name: subscription.tag_name }))
                 : null}
               <View style={styles.buttonRow}>
                 <CustomButton
                   onPress={() => toggleActive(subscription)}
                   style={styles.smallButton}
-                  text={subscription.active ? "Pause" : "Resume"}
+                  text={subscription.active ? t("Pause") : t("Resume")}
                   type="secondary"
                 />
                 <CustomButton
                   onPress={() => remove(subscription)}
                   style={styles.smallButton}
-                  text="Delete"
+                  text={t("Delete")}
                   type="warning"
                 />
               </View>
             </EntryCard>
           ))}
-          {subscriptions.length === 0 ? dateOptions("No subscriptions yet.") : null}
+          {subscriptions.length === 0 ? dateOptions(t("No subscriptions yet.")) : null}
         </Section>
-        <Section title="Add a subscription">
+        <Section title={t("Add a subscription")}>
           <CustomTextInput
-            placeholder="Subscription name"
+            placeholder={t("Subscription name")}
             setValue={setName}
             value={name}
           />
           <CustomTextInput
             keyboardType="decimal-pad"
-            placeholder="Amount"
+            placeholder={t("Amount")}
             setValue={setAmount}
             style={styles.inputSpacing}
             value={amount}
           />
           <DatePicker
-            placeholder="First deduction date"
+            placeholder={t("First deduction date")}
             setValue={setStartDate}
             style={styles.inputSpacing}
             value={startDate}
           />
           <Dropdown
             data={[
-              { label: "Monthly", value: "monthly" },
-              { label: "Annually", value: "annual" },
-              { label: "Custom interval", value: "custom" },
+              { label: t("Monthly"), value: "monthly" },
+              { label: t("Annually"), value: "annual" },
+              { label: t("Custom interval"), value: "custom" },
             ]}
             labelField="label"
             dropdownPosition="bottom"
             keyboardAvoiding={false}
             onChange={item => setFrequency(item.value)}
-            placeholder="Recurrence"
+            placeholder={t("Recurrence")}
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={[dropdownStyles.input, styles.inputSpacing]}
@@ -338,7 +343,7 @@ export default function SubscriptionsScreen() {
           {frequency === "custom" && (
             <CustomTextInput
               keyboardType="number-pad"
-              placeholder="Repeat every how many days?"
+              placeholder={t("Repeat every how many days?")}
               setValue={setIntervalDays}
               style={styles.inputSpacing}
               value={intervalDays}
@@ -346,14 +351,14 @@ export default function SubscriptionsScreen() {
           )}
           <Dropdown
             data={(data?.accounts || []).map(account => ({
-              label: account.name,
+              label: accountLabel(account.name),
               value: account.id,
             }))}
             labelField="label"
             dropdownPosition="bottom"
             keyboardAvoiding={false}
             onChange={item => setAccountId(item.value)}
-            placeholder="Account"
+            placeholder={t("Account")}
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={[dropdownStyles.input, styles.inputSpacing]}
@@ -361,7 +366,7 @@ export default function SubscriptionsScreen() {
             valueField="value"
           />
           <View style={localStyles.tagSection}>
-            <CustomText type="body4" text="Tag (optional)" style={localStyles.tagLabel} />
+            <CustomText type="body4" text={t("Tag (optional)")} style={localStyles.tagLabel} />
             <View style={localStyles.tagRow}>
               <TextInput
                 autoCapitalize="sentences"
@@ -372,7 +377,7 @@ export default function SubscriptionsScreen() {
                 }}
                 onFocus={() => setTagMenuOpen(true)}
                 onSubmitEditing={submitTag}
-                placeholder="Search or create a tag"
+                placeholder={t("Search or create a tag")}
                 placeholderTextColor={getColors("placeholder")}
                 returnKeyType="done"
                 style={[
@@ -405,7 +410,7 @@ export default function SubscriptionsScreen() {
                   />
                   <CustomText
                     type="body5"
-                    text="Color"
+                    text={t("Color")}
                     style={{ color: getColors("secondaryText") }}
                   />
                 </Pressable>
@@ -458,7 +463,7 @@ export default function SubscriptionsScreen() {
               <>
                 <CustomText
                   type="body5"
-                  text="Press Enter to create this tag."
+                  text={t("Press Enter to create this tag.")}
                   style={localStyles.tagHint}
                 />
                 {tagColorOpen && (
@@ -483,7 +488,7 @@ export default function SubscriptionsScreen() {
                     <View style={localStyles.colorPalette}>
                       {tagColors.map(color => (
                         <Pressable
-                          accessibilityLabel={`Select ${color}`}
+                          accessibilityLabel={t("Select {color}", { color })}
                           accessibilityRole="button"
                           key={color}
                           onPress={() => setTagColor(color)}
@@ -507,7 +512,7 @@ export default function SubscriptionsScreen() {
             disabled={isSaving}
             onPress={save}
             style={styles.actionButton}
-            text={isSaving ? "Adding subscription..." : "Add subscription"}
+            text={isSaving ? t("Adding subscription...") : t("Add subscription")}
           />
         </Section>
       </ScrollView>

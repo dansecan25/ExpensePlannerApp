@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { t, useLanguage } from "../../i18n/i18n";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import CustomButton from "../../components/customButton/customButton";
@@ -8,7 +9,8 @@ import {
   getCashflowData,
   getLocalDate,
 } from "../../utils/database_connector";
-import { formatDisplayDate } from "../../utils/dateFormatting";
+import { formatDisplayDate, formatMonthYear } from "../../utils/dateFormatting";
+import { getEditTarget } from "../../utils/movementEditTarget";
 import {
   getBalanceBeforeDate,
   getCashflowProjection,
@@ -22,6 +24,7 @@ const formatMoney = (amount, currency) =>
   })} ${currency || ""}`.trim();
 
 export default function HomeScreen({ navigation }) {
+  useLanguage();
   const [todayExpenses, setTodayExpenses] = useState([]);
   const [monthExpenses, setMonthExpenses] = useState([]);
   const [availableBeforePayment, setAvailableBeforePayment] = useState(0);
@@ -75,7 +78,7 @@ export default function HomeScreen({ navigation }) {
               : event.kind,
           name:
             event.kind === "savings_use"
-              ? `Savings used · ${event.name}`
+              ? t("Savings used · {name}", { name: event.name })
               : event.name,
           recurringDeduction:
             Boolean(event.recurring_deduction) ||
@@ -93,7 +96,7 @@ export default function HomeScreen({ navigation }) {
     } catch (error) {
       console.error("Failed to load home cash flow:", error);
       setLoadError(true);
-      Alert.alert("Could not update Home", "Please try again.");
+      Alert.alert(t("Could not update Home"), t("Please try again."));
     }
   }, []);
 
@@ -102,9 +105,15 @@ export default function HomeScreen({ navigation }) {
     return navigation.addListener("focus", loadHome);
   }, [loadHome, navigation]);
 
-  const monthLabel = new Date().toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
+  const monthLabel = formatMonthYear(new Date());
+  const editableRow = (expense, text) => ({
+    key: `${expense.date}-${expense.id}`,
+    text,
+    editLabel: t("Edit {name}", { name: expense.name }),
+    onEdit: () =>
+      navigation.navigate("Edit movement", {
+        movement: getEditTarget(expense),
+      }),
   });
   const todayLabels = todayExpenses.map(expense => {
     const prefix =
@@ -119,14 +128,17 @@ export default function HomeScreen({ navigation }) {
         : expense.amount ?? expense.value;
     const recurringLabel =
       expense.recurringDeduction || expense.recurrence_frequency
-        ? " · Recurring"
+        ? ` · ${t("Recurring")}`
         : "";
     const movementName = expense.subscription
-      ? `${expense.name} · Subscription`
+      ? t("{name} · Subscription", { name: expense.name })
       : expense.kind === "savings"
-        ? `Savings · ${expense.name}`
+        ? t("Savings · {name}", { name: expense.name })
         : expense.name;
-    return `${prefix}${movementName}${recurringLabel} · ${formatMoney(amount, currency)}`;
+    return editableRow(
+      expense,
+      `${prefix}${movementName}${recurringLabel} · ${formatMoney(amount, currency)}`,
+    );
   });
   const monthOutflowRows = monthExpenses.filter(
     movement => movement.kind === "expense" || movement.kind === "savings",
@@ -153,17 +165,17 @@ export default function HomeScreen({ navigation }) {
           ? expense.inflated_value ?? expense.amount ?? expense.value
           : expense.amount ?? expense.value;
       const movementLabel = expense.subscription
-        ? `${expense.name} · Subscription`
+        ? t("{name} · Subscription", { name: expense.name })
         : expense.recurringDeduction || expense.recurrence_frequency
-          ? `${expense.name} · Recurring`
+          ? t("{name} · Recurring", { name: expense.name })
           : expense.kind === "savings"
-            ? `Savings · ${expense.name}`
+            ? t("Savings · {name}", { name: expense.name })
             : expense.name;
       const sign = isIncome ? "+" : isTransfer ? "↔ " : "-";
-      return `${date} · ${sign}${movementLabel} · ${formatMoney(
-        amount,
-        currency,
-      )}`;
+      return editableRow(
+        expense,
+        `${date} · ${sign}${movementLabel} · ${formatMoney(amount, currency)}`,
+      );
     });
 
   return (
@@ -171,14 +183,14 @@ export default function HomeScreen({ navigation }) {
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      <CustomText type="header1" text="Expenses App" />
+      <CustomText type="header1" text={t("Expenses App")} />
       <View style={styles.balanceCard}>
         <CustomText
           type="body3"
           text={
             hasFixedIncome
-              ? "Money available before next payment"
-              : "Current available balance"
+              ? t("Money available before next payment")
+              : t("Current available balance")
           }
         />
         <CustomText
@@ -188,23 +200,23 @@ export default function HomeScreen({ navigation }) {
         />
       </View>
       <View style={styles.sectionHeading}>
-        <CustomText type="header2" text="Today's movements" style={styles.heading} />
+        <CustomText type="header2" text={t("Today's movements")} style={styles.heading} />
         <CustomButton
           onPress={() => navigation.navigate("Add today expense")}
-          text="Add"
+          text={t("Add")}
           type="secondary"
         />
       </View>
       <ScrollableTile
         data={todayLabels}
-        size={Math.max(120, Math.min(220, 44 + todayLabels.length * 34))}
+        size={Math.max(120, Math.min(220, 44 + todayLabels.length * 44))}
       />
       <View style={styles.monthHeading}>
         <View style={styles.heading}>
-          <CustomText type="header2" text="This month's movements" />
+          <CustomText type="header2" text={t("This month's movements")} />
           <CustomText
             type="body3"
-            text={`${monthLabel} · Cash outflows ${formatMoney(monthTotal, currency)}`}
+            text={t("{month} · Cash outflows {amount}", { month: monthLabel, amount: formatMoney(monthTotal, currency) })}
           />
         </View>
       </View>
@@ -217,7 +229,7 @@ export default function HomeScreen({ navigation }) {
         <CustomButton
           onPress={loadHome}
           style={styles.retryButton}
-          text="Retry loading Home"
+          text={t("Retry loading Home")}
           type="secondary"
         />
       ) : null}

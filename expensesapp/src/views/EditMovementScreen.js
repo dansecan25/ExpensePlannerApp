@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { accountLabel, t, useLanguage } from "../i18n/i18n";
 import {
   Alert,
   Pressable,
@@ -33,24 +34,25 @@ import {
 import { formatDisplayDate } from "../utils/dateFormatting";
 import { getColors } from "../utils/color-picker";
 import { useTheme } from "../utils/themeContext";
+import { useKeyboardReveal } from "../utils/useKeyboardReveal";
 
-const KIND_LABELS = {
-  expense: "Deduction",
-  savings: "Savings",
-  income: "Income",
-  savings_use: "Savings used",
-};
+const getKindLabels = () => ({
+  expense: t("Deduction"),
+  savings: t("Savings"),
+  income: t("Income"),
+  savings_use: t("Savings used"),
+});
 
-const REPEAT_OPTIONS = [
-  { label: "Weekly", value: "weekly" },
-  { label: "Monthly", value: "monthly" },
-  { label: "Yearly", value: "yearly" },
+const getRepeatOptions = () => [
+  { label: t("Weekly"), value: "weekly" },
+  { label: t("Monthly"), value: "monthly" },
+  { label: t("Yearly"), value: "yearly" },
 ];
 
-const SUBSCRIPTION_OPTIONS = [
-  { label: "Monthly", value: "monthly" },
-  { label: "Annual", value: "annual" },
-  { label: "Custom (days)", value: "custom" },
+const getSubscriptionOptions = () => [
+  { label: t("Monthly"), value: "monthly" },
+  { label: t("Annual"), value: "annual" },
+  { label: t("Custom (days)"), value: "custom" },
 ];
 
 const dayDifference = (from, to) => {
@@ -107,9 +109,9 @@ const parseTagNames = text =>
     .map(name => name.trim())
     .filter(Boolean);
 
-function Field({ children, label }) {
+function Field({ children, label, onLayout }) {
   return (
-    <View style={styles.field}>
+    <View onLayout={onLayout} style={styles.field}>
       <CustomText type="body4" text={label} style={styles.fieldLabel} />
       {children}
     </View>
@@ -117,7 +119,10 @@ function Field({ children, label }) {
 }
 
 export default function EditMovementScreen({ navigation, route }) {
+  useLanguage();
   useTheme();
+  const { contentInsetStyle, recordFieldLayout, revealField, scrollRef } =
+    useKeyboardReveal();
   const target = route?.params?.movement;
   const sourceType = target?.sourceType;
   const occurrenceDate = target?.occurrenceDate;
@@ -151,7 +156,7 @@ export default function EditMovementScreen({ navigation, route }) {
     const load = async () => {
       try {
         if (!target || !sourceType || !occurrenceDate) {
-          throw new Error("Missing movement.");
+          throw new Error(t("Missing movement."));
         }
         const financeData = await getCashflowData();
         let row = null;
@@ -171,7 +176,7 @@ export default function EditMovementScreen({ navigation, route }) {
           row = financeData.salary;
         }
         if (!row) {
-          throw new Error("Movement not found.");
+          throw new Error(t("Movement not found."));
         }
         if (!isMounted) {
           return;
@@ -225,7 +230,7 @@ export default function EditMovementScreen({ navigation, route }) {
           setRepeatFrequency(row.recurrence_frequency || "monthly");
           setRepeatEndDate(row.recurrence_end_date || "");
         } else if (sourceType === "salary") {
-          setName("Salary");
+          setName(t("Salary"));
           setAmount(String(target.occurrenceAmount ?? 0));
           setKind("income");
           setAccountId(
@@ -270,7 +275,7 @@ export default function EditMovementScreen({ navigation, route }) {
   const accounts = useMemo(
     () =>
       (data?.accounts || []).map(account => ({
-        label: account.name,
+        label: accountLabel(account.name),
         value: account.id,
       })),
     [data],
@@ -414,8 +419,11 @@ export default function EditMovementScreen({ navigation, route }) {
       );
       if (balance < -0.005) {
         Alert.alert(
-          "Insufficient funds",
-          `${accountName(values.fromAccountId) || "The source account"} would be overdrawn on ${formatDisplayDate(checkDate)} after this change.`,
+          t("Insufficient funds"),
+          t("{account} would be overdrawn on {date} after this change.", {
+            account: accountLabel(accountName(values.fromAccountId)) || t("The source account"),
+            date: formatDisplayDate(checkDate),
+          }),
         );
         return false;
       }
@@ -431,7 +439,7 @@ export default function EditMovementScreen({ navigation, route }) {
     }
     const schedule = getSalaryScheduleForDate(data, occurrenceDate);
     if (!schedule || schedule.income_type !== "fixed") {
-      throw new Error("The fixed salary schedule for this deposit could not be found.");
+      throw new Error(t("The fixed salary schedule for this deposit could not be found."));
     }
     const dateChanged = date !== occurrenceDate;
     if (dateChanged && schedule.deposits_date === "Quincenal") {
@@ -461,8 +469,8 @@ export default function EditMovementScreen({ navigation, route }) {
   const save = async scope => {
     if (!canSave) {
       Alert.alert(
-        "Check the details",
-        "Enter a name, a positive amount, a valid date and valid repeat or projection values.",
+        t("Check the details"),
+        t("Enter a name, a positive amount, a valid date and valid repeat or projection values."),
       );
       return;
     }
@@ -503,8 +511,8 @@ export default function EditMovementScreen({ navigation, route }) {
     } catch (error) {
       console.error("Failed to save movement:", error);
       Alert.alert(
-        "Could not save changes",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not save changes"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsBusy(false);
@@ -524,8 +532,8 @@ export default function EditMovementScreen({ navigation, route }) {
     } catch (error) {
       console.error("Failed to delete movement:", error);
       Alert.alert(
-        "Could not delete",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not delete"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsBusy(false);
@@ -533,36 +541,36 @@ export default function EditMovementScreen({ navigation, route }) {
   };
 
   const confirmDelete = () => {
-    const label = isTransfer ? "this transfer" : `"${name}"`;
+    const label = isTransfer ? t("this transfer") : `"${name}"`;
     if (isSalary) {
       Alert.alert(
-        "Delete salary deposit",
-        `Remove only the deposit on ${formatDisplayDate(occurrenceDate)}? Your salary schedule keeps generating the other deposits. This cannot be undone.`,
+        t("Delete salary deposit"),
+        t("Remove only the deposit on {date}? Your salary schedule keeps generating the other deposits. This cannot be undone.", { date: formatDisplayDate(occurrenceDate) }),
         [
-          { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: () => runDelete("instance") },
+          { text: t("Cancel"), style: "cancel" },
+          { text: t("Delete"), style: "destructive", onPress: () => runDelete("instance") },
         ],
       );
       return;
     }
     if (isSeries) {
       Alert.alert(
-        "Delete recurring movement",
-        `Delete only the ${formatDisplayDate(occurrenceDate)} occurrence of ${label}, or the whole recurring schedule and all its occurrences? This cannot be undone.`,
+        t("Delete recurring movement"),
+        t("Delete only the {date} occurrence of {label}, or the whole recurring schedule and all its occurrences? This cannot be undone.", { date: formatDisplayDate(occurrenceDate), label }),
         [
-          { text: "Cancel", style: "cancel" },
-          { text: "This instance only", onPress: () => runDelete("instance") },
-          { text: "All instances", style: "destructive", onPress: () => runDelete("all") },
+          { text: t("Cancel"), style: "cancel" },
+          { text: t("This instance only"), onPress: () => runDelete("instance") },
+          { text: t("All instances"), style: "destructive", onPress: () => runDelete("all") },
         ],
       );
       return;
     }
     Alert.alert(
-      "Delete movement",
-      `Permanently delete ${label}? This cannot be undone.`,
+      t("Delete movement"),
+      t("Permanently delete {label}? This cannot be undone.", { label }),
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => runDelete("all") },
+        { text: t("Cancel"), style: "cancel" },
+        { text: t("Delete"), style: "destructive", onPress: () => runDelete("all") },
       ],
     );
   };
@@ -571,16 +579,16 @@ export default function EditMovementScreen({ navigation, route }) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
-          <CustomText type="header2" text="Movement not found" />
+          <CustomText type="header2" text={t("Movement not found")} />
           <CustomText
             type="body1"
-            text="This movement could not be loaded. It may have been changed or deleted."
+            text={t("This movement could not be loaded. It may have been changed or deleted.")}
             style={styles.field}
           />
           <CustomButton
             onPress={() => navigation.goBack()}
             style={styles.saveButton}
-            text="Go back"
+            text={t("Go back")}
           />
         </View>
       </SafeAreaView>
@@ -591,7 +599,7 @@ export default function EditMovementScreen({ navigation, route }) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
-          <CustomText type="body1" text="Loading..." />
+          <CustomText type="body1" text={t("Loading...")} />
         </View>
       </SafeAreaView>
     );
@@ -606,24 +614,25 @@ export default function EditMovementScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, contentInsetStyle]}
         keyboardShouldPersistTaps="handled"
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
       >
-        <CustomText type="header2" text="Edit movement" />
+        <CustomText type="header2" text={t("Edit movement")} />
         <CustomText
           type="body1"
           text={
             isSeries
-              ? `Recurring · opened from the ${formatDisplayDate(occurrenceDate)} occurrence`
-              : "One-time movement"
+              ? t("Recurring · opened from the {date} occurrence", { date: formatDisplayDate(occurrenceDate) })
+              : t("One-time movement")
           }
           style={styles.subtitle}
         />
 
         {!isTransfer && (
           <>
-            <CustomText type="body3" text="Type" style={styles.field} />
+            <CustomText type="body3" text={t("Type")} style={styles.field} />
             <View style={styles.choiceRow}>
               {kindChoices.map(choice => (
                 <CustomButton
@@ -635,7 +644,7 @@ export default function EditMovementScreen({ navigation, route }) {
                     }
                   }}
                   style={styles.choice}
-                  text={KIND_LABELS[choice]}
+                  text={getKindLabels()[choice]}
                   type={kind === choice ? "primary" : "secondary"}
                 />
               ))}
@@ -643,18 +652,18 @@ export default function EditMovementScreen({ navigation, route }) {
           </>
         )}
 
-        <Field label={isSeries ? "Date of this occurrence" : "Date"}>
+        <Field label={isSeries ? t("Date of this occurrence") : t("Date")}>
           <DatePicker
-            placeholder="Select date"
+            placeholder={t("Select date")}
             setValue={setDate}
             value={date}
           />
         </Field>
 
         {!isTransfer && (
-          <Field label="Name">
+          <Field label={t("Name")}>
             <CustomTextInput
-              placeholder="What was it?"
+              placeholder={t("What was it?")}
               setValue={setName}
               value={name}
             />
@@ -663,8 +672,8 @@ export default function EditMovementScreen({ navigation, route }) {
         <Field
           label={
             isSalary
-              ? `Net deposit amount${currency ? ` (${currency})` : ""}`
-              : "Amount"
+              ? `${t("Net deposit amount")}${currency ? ` (${currency})` : ""}`
+              : t("Amount")
           }
         >
           <CustomTextInput
@@ -678,18 +687,18 @@ export default function EditMovementScreen({ navigation, route }) {
         {showInflate && (
           <>
             <View style={styles.checkRow}>
-              <CustomText type="body4" text="Inflate planned amount" />
+              <CustomText type="body4" text={t("Inflate planned amount")} />
               <CustomCheckbox
                 checked={isInflated}
-                label="Inflate"
+                label={t("Inflate")}
                 onToggle={() => setIsInflated(value => !value)}
               />
             </View>
             {isInflated && (
-              <Field label="Amount to include in projections">
+              <Field label={t("Amount to include in projections")}>
                 <CustomTextInput
                   keyboardType="decimal-pad"
-                  placeholder="Must be at least the actual amount"
+                  placeholder={t("Must be at least the actual amount")}
                   setValue={setInflatedAmount}
                   value={inflatedAmount}
                 />
@@ -700,12 +709,12 @@ export default function EditMovementScreen({ navigation, route }) {
 
         {isSubscription && (
           <>
-            <Field label="Repeats (applies to all instances)">
+            <Field label={t("Repeats (applies to all instances)")}>
               <Dropdown
-                data={SUBSCRIPTION_OPTIONS}
+                data={getSubscriptionOptions()}
                 labelField="label"
                 onChange={item => setSubscriptionFrequency(item.value)}
-                placeholder="Repeat frequency"
+                placeholder={t("Repeat frequency")}
                 placeholderStyle={dropdownStyles.placeholderText}
                 selectedTextStyle={dropdownStyles.selectedText}
                 style={dropdownStyles.input}
@@ -714,7 +723,7 @@ export default function EditMovementScreen({ navigation, route }) {
               />
             </Field>
             {subscriptionFrequency === "custom" && (
-              <Field label="Repeat every (days)">
+              <Field label={t("Repeat every (days)")}>
                 <CustomTextInput
                   keyboardType="number-pad"
                   placeholder="30"
@@ -733,24 +742,24 @@ export default function EditMovementScreen({ navigation, route }) {
                 type="body4"
                 text={
                   isSeries
-                    ? "Repeats (applies to all instances)"
-                    : "Repeat this movement"
+                    ? t("Repeats (applies to all instances)")
+                    : t("Repeat this movement")
                 }
               />
               <CustomCheckbox
                 checked={isRepeat}
-                label="Repeat"
+                label={t("Repeat")}
                 onToggle={() => setIsRepeat(value => !value)}
               />
             </View>
             {isRepeat && (
               <>
-                <Field label="Repeat">
+                <Field label={t("Repeat")}>
                   <Dropdown
-                    data={REPEAT_OPTIONS}
+                    data={getRepeatOptions()}
                     labelField="label"
                     onChange={item => setRepeatFrequency(item.value)}
-                    placeholder="Repeat frequency"
+                    placeholder={t("Repeat frequency")}
                     placeholderStyle={dropdownStyles.placeholderText}
                     selectedTextStyle={dropdownStyles.selectedText}
                     style={dropdownStyles.input}
@@ -758,10 +767,10 @@ export default function EditMovementScreen({ navigation, route }) {
                     valueField="value"
                   />
                 </Field>
-                <Field label="End date (optional)">
+                <Field label={t("End date (optional)")}>
                   <DatePicker
                     allowClear
-                    placeholder="Leave blank to repeat until stopped"
+                    placeholder={t("Leave blank to repeat until stopped")}
                     setValue={setRepeatEndDate}
                     value={repeatEndDate}
                   />
@@ -769,7 +778,7 @@ export default function EditMovementScreen({ navigation, route }) {
                 {!repeatEndValid && (
                   <CustomText
                     type="body5"
-                    text="Enter a valid end date on or after the movement date."
+                    text={t("Enter a valid end date on or after the movement date.")}
                     style={styles.validationMessage}
                   />
                 )}
@@ -778,9 +787,9 @@ export default function EditMovementScreen({ navigation, route }) {
           </>
         )}
 
-        <Field label="Description (optional)">
+        <Field label={t("Description (optional)")}>
           <CustomTextInput
-            placeholder="Extra information"
+            placeholder={t("Extra information")}
             setValue={setDescription}
             value={description}
           />
@@ -788,12 +797,12 @@ export default function EditMovementScreen({ navigation, route }) {
 
         {isTransfer ? (
           <>
-            <Field label="From account">
+            <Field label={t("From account")}>
               <Dropdown
                 data={accounts}
                 labelField="label"
                 onChange={item => setFromAccountId(item.value)}
-                placeholder="Select source account"
+                placeholder={t("Select source account")}
                 placeholderStyle={dropdownStyles.placeholderText}
                 selectedTextStyle={dropdownStyles.selectedText}
                 style={dropdownStyles.input}
@@ -801,12 +810,12 @@ export default function EditMovementScreen({ navigation, route }) {
                 valueField="value"
               />
             </Field>
-            <Field label="To account">
+            <Field label={t("To account")}>
               <Dropdown
                 data={accounts}
                 labelField="label"
                 onChange={item => setToAccountId(item.value)}
-                placeholder="Select destination account"
+                placeholder={t("Select destination account")}
                 placeholderStyle={dropdownStyles.placeholderText}
                 selectedTextStyle={dropdownStyles.selectedText}
                 style={dropdownStyles.input}
@@ -817,18 +826,18 @@ export default function EditMovementScreen({ navigation, route }) {
             {!transferValid && (
               <CustomText
                 type="body5"
-                text="Choose two different accounts."
+                text={t("Choose two different accounts.")}
                 style={styles.validationMessage}
               />
             )}
           </>
         ) : (
-          <Field label="Account">
+          <Field label={t("Account")}>
             <Dropdown
               data={accounts}
               labelField="label"
               onChange={item => setAccountId(item.value)}
-              placeholder="Select account"
+              placeholder={t("Select account")}
               placeholderStyle={dropdownStyles.placeholderText}
               selectedTextStyle={dropdownStyles.selectedText}
               style={dropdownStyles.input}
@@ -839,14 +848,18 @@ export default function EditMovementScreen({ navigation, route }) {
         )}
 
         {!isTransfer && (
-          <Field label="Tags (optional, separate with commas)">
+          <Field
+            label={t("Tags (optional, separate with commas)")}
+            onLayout={recordFieldLayout}
+          >
             <TextInput
               autoCapitalize="sentences"
               onChangeText={value => {
                 setTagText(value);
                 setTagTouched(true);
               }}
-              placeholder="Search or create a tag"
+              onFocus={revealField}
+              placeholder={t("Search or create a tag")}
               placeholderTextColor={getColors("placeholder")}
               style={[styles.tagInput, inputColors]}
               value={tagText}
@@ -887,14 +900,14 @@ export default function EditMovementScreen({ navigation, route }) {
         {isSalary && (
           <CustomText
             type="body5"
-            text="For all instances, the net deposit, deposit day and account are applied from this deposit forward. Name, type, description and tags apply to this instance only."
+            text={t("For all instances, the net deposit, deposit day and account are applied from this deposit forward. Name, type, description and tags apply to this instance only.")}
             style={styles.note}
           />
         )}
         {isSubscription && (
           <CustomText
             type="body5"
-            text="A subscription keeps one tag; the first tag listed is used when saving for all instances."
+            text={t("A subscription keeps one tag; the first tag listed is used when saving for all instances.")}
             style={styles.note}
           />
         )}
@@ -905,13 +918,13 @@ export default function EditMovementScreen({ navigation, route }) {
               disabled={!canSave || isBusy}
               onPress={() => save("instance")}
               style={styles.saveButton}
-              text={isBusy ? "Saving..." : "Save changes for this instance only"}
+              text={isBusy ? t("Saving...") : t("Save changes for this instance only")}
             />
             <CustomButton
               disabled={!canSave || isBusy}
               onPress={() => save("all")}
               style={styles.secondButton}
-              text="Save changes for all instances"
+              text={t("Save changes for all instances")}
               type="secondary"
             />
           </>
@@ -920,14 +933,14 @@ export default function EditMovementScreen({ navigation, route }) {
             disabled={!canSave || isBusy}
             onPress={() => save("all")}
             style={styles.saveButton}
-            text={isBusy ? "Saving..." : "Save changes"}
+            text={isBusy ? t("Saving...") : t("Save changes")}
           />
         )}
         <CustomButton
           disabled={isBusy}
           onPress={confirmDelete}
           style={styles.deleteButton}
-          text="Delete"
+          text={t("Delete")}
           type="warning"
         />
       </ScrollView>

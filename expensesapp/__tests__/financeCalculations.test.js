@@ -1,5 +1,5 @@
 jest.mock("../src/utils/database_connector", () => ({
-  getLocalDate: date => {
+  getLocalDate: (date = new Date()) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
@@ -954,5 +954,283 @@ describe("subscription schedules", () => {
       "2026-03-31",
       "2026-04-30",
     ]);
+  });
+});
+
+describe("balances stay correct as months pass", () => {
+  const asOf = new Date(2027, 2, 15, 12);
+  const base = overrides =>
+    emptyData({
+      accounts: [{ id: 1, name: "Main account", opening_balance: 1000 }],
+      ...overrides,
+    });
+
+  test("keeps recurring occurrences from earlier months in today's balance", () => {
+    const projection = getCashflowProjection(
+      base({
+        expenses: [
+          {
+            id: 1,
+            date: "2026-11-10",
+            name: "Rent",
+            value: 100,
+            kind: "expense",
+            account_id: 1,
+            recurrence_frequency: "monthly",
+            recurrence_active: 1,
+          },
+        ],
+      }),
+      asOf,
+      1,
+    );
+    // Nov, Dec, Jan, Feb and Mar 10th.
+    expect(projection.todayBalance).toBe(500);
+  });
+
+  test("keeps earlier subscription charges and recurring transfers", () => {
+    const projection = getCashflowProjection(
+      base({
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 1000 },
+          { id: 2, name: "Other", opening_balance: 0 },
+        ],
+        subscriptions: [
+          {
+            id: 1,
+            name: "Music",
+            amount: 10,
+            start_date: "2027-01-05",
+            frequency: "monthly",
+            active: 1,
+            account_id: 1,
+          },
+        ],
+        accountTransfers: [
+          {
+            id: 1,
+            date: "2027-01-01",
+            from_account_id: 1,
+            to_account_id: 2,
+            amount: 50,
+            recurrence_frequency: "monthly",
+            recurrence_active: 1,
+          },
+        ],
+      }),
+      asOf,
+      1,
+    );
+    expect(projection.accountBalances.map(row => row.balance)).toEqual([820, 150]);
+  });
+
+  test("pays on Thursday when the month ends on a Sunday", () => {
+    const date = getPreLastAvailableDay(2027, 0);
+    expect([date.getMonth(), date.getDate()]).toEqual([0, 28]);
+  });
+});
+
+describe("credit accounts", () => {
+  const {
+    getCreditAccountStatus,
+  } = require("../src/utils/creditAccountSchedule");
+  const card = {
+    id: 2,
+    name: "Visa",
+    opening_balance: 0,
+    account_type: "credit",
+    credit_cut_day: 15,
+    credit_payment_day: 5,
+  };
+  const data = overrides =>
+    emptyData({
+      accounts: [
+        { id: 1, name: "Main account", opening_balance: 1000 },
+        card,
+      ],
+      expenses: [
+        {
+          id: 1,
+          date: "2026-11-10",
+          name: "Purchase",
+          value: 300,
+          kind: "expense",
+          account_id: 2,
+        },
+      ],
+      ...overrides,
+    });
+  const statusOn = (date, overrides) => {
+    const projection = getCashflowProjection(data(overrides), date, 120);
+    return getCreditAccountStatus(card, projection, date);
+  };
+
+  test("owes the statement until the payment date in the following month", () => {
+    expect(statusOn(new Date(2026, 10, 20, 12))).toMatchObject({
+      nextCutDate: "2026-12-15",
+      dueDate: "2026-12-05",
+      daysUntilDue: 15,
+      statementClosed: true,
+      amountDue: 300,
+      owedNow: 300,
+      pastDueDate: null,
+    });
+  });
+
+  test("subtracts payments made after the cut", () => {
+    const status = statusOn(new Date(2026, 10, 20, 12), {
+      accountTransfers: [
+        {
+          id: 1,
+          date: "2026-11-18",
+          from_account_id: 1,
+          to_account_id: 2,
+          amount: 120,
+        },
+      ],
+    });
+    expect(status.amountDue).toBe(180);
+    expect(status.owedNow).toBe(180);
+  });
+
+  test("flags an unpaid statement after its deadline", () => {
+    expect(statusOn(new Date(2026, 11, 10, 12))).toMatchObject({
+      statementClosed: false,
+      dueDate: "2027-01-05",
+      amountDue: 300,
+      pastDueAmount: 300,
+      pastDueDate: "2026-12-05",
+    });
+  });
+
+  test("keeps the payment date in the cut's month when it falls later", () => {
+    const lateDue = { ...card, credit_cut_day: 5, credit_payment_day: 25 };
+    const asOf = new Date(2026, 10, 10, 12);
+    const projection = getCashflowProjection(
+      data({
+        accounts: [{ id: 1, name: "Main account", opening_balance: 1 }, lateDue],
+      }),
+      asOf,
+      60,
+    );
+    expect(getCreditAccountStatus(lateDue, projection, asOf).dueDate).toBe(
+      "2026-11-25",
+    );
+  });
+
+  test("clamps a day that a short month does not have", () => {
+    const monthEnd = { ...card, credit_cut_day: 31, credit_payment_day: 20 };
+    const asOf = new Date(2027, 1, 10, 12);
+    const projection = getCashflowProjection(data(), asOf, 60);
+    expect(getCreditAccountStatus(monthEnd, projection, asOf).nextCutDate).toBe(
+      "2027-02-28",
+    );
+  });
+
+  test("does not raise overdraft warnings for money owed on a card", () => {
+    const asOf = new Date(2026, 10, 20, 12);
+    expect(getCashflowProjection(data(), asOf, 30).negativeAccounts).toEqual([]);
+  });
+
+  test("a card's debt cancelling the other openings keeps both balances", () => {
+    const projection = getCashflowProjection(
+      emptyData({
+        salary: { amount: 0, balance: 777, fixed: 0 },
+        accounts: [
+          { id: 1, name: "Main account", opening_balance: 300 },
+          { ...card, opening_balance: -300 },
+        ],
+      }),
+      new Date(2026, 10, 20, 12),
+      1,
+    );
+    expect(projection.todayBalance).toBe(0);
+    expect(projection.accountBalances.map(row => row.balance)).toEqual([300, -300]);
+  });
+});
+
+describe("savings group planned totals", () => {
+  const { getSavingsGroupPlan } = require("../src/utils/savingsCalculations");
+  const today = "2026-11-08";
+  const saving = (date, value, extra = {}) => ({
+    id: date,
+    date,
+    value,
+    kind: "savings",
+    ...extra,
+  });
+
+  test("adds future contributions through the last date", () => {
+    expect(
+      getSavingsGroupPlan(
+        [saving("2026-12-31", 150), saving("2027-07-11", 100)],
+        [],
+        today,
+      ),
+    ).toEqual({ total: 250, lastDate: "2027-07-11", isOpenEnded: false });
+  });
+
+  test("subtracts money spent from the group and amounts used", () => {
+    const plan = getSavingsGroupPlan(
+      [saving("2026-10-01", 500, { savings_used: 50 }), saving("2027-01-01", 100)],
+      [{ date: "2027-02-01", value: 120 }],
+      today,
+    );
+    expect(plan.total).toBe(430);
+  });
+
+  test("counts a recurring contribution through its end date", () => {
+    expect(
+      getSavingsGroupPlan(
+        [
+          saving("2026-10-31", 10, {
+            recurrence_frequency: "monthly",
+            recurrence_end_date: "2026-12-31",
+          }),
+        ],
+        [],
+        today,
+      ),
+    ).toEqual({ total: 30, lastDate: "2026-12-31", isOpenEnded: false });
+  });
+
+  test("stops at a stopped recurrence and skips excluded dates", () => {
+    expect(
+      getSavingsGroupPlan(
+        [
+          saving("2026-08-15", 10, {
+            recurrence_frequency: "monthly",
+            recurrence_active: 0,
+            recurrence_stopped_date: "2026-10-20",
+            excluded_dates: "2026-09-15",
+          }),
+        ],
+        [],
+        today,
+      ),
+    ).toEqual({ total: 20, lastDate: "2026-10-15", isOpenEnded: false });
+  });
+
+  test("counts open-ended savings for two years and marks them", () => {
+    expect(
+      getSavingsGroupPlan(
+        [saving("2026-11-01", 10, { recurrence_frequency: "monthly" })],
+        [],
+        today,
+      ),
+    ).toEqual({ total: 250, lastDate: "2028-11-08", isOpenEnded: true });
+  });
+
+  test("runs open-ended savings as far as a later dated contribution", () => {
+    const plan = getSavingsGroupPlan(
+      [
+        saving("2026-11-01", 10, { recurrence_frequency: "monthly" }),
+        saving("2029-01-15", 100),
+      ],
+      [],
+      today,
+    );
+    expect(plan.lastDate).toBe("2029-01-15");
+    expect(plan.total).toBe(10 * 27 + 100);
   });
 });

@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from "react";
+import { t, useLanguage } from "../i18n/i18n";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CommonActions } from "@react-navigation/native";
@@ -24,7 +25,7 @@ const initialOtherTaxes = [{ name: "CCSS", percentage: "10" }];
 const parseSalaryRanges = ranges => {
   const parsed = ranges.map(({ range, percentage }) => {
     if (!range.trim() || percentage.trim() === "") {
-      throw new Error("Complete every salary range and percentage.");
+      throw new Error(t("Complete every salary range and percentage."));
     }
     const [minimumText, maximumText] = range.split("-");
     const min_salary = Number(minimumText);
@@ -41,7 +42,7 @@ const parseSalaryRanges = ranges => {
       parsedPercentage < 0 ||
       parsedPercentage > 100
     ) {
-      throw new Error("Enter valid salary ranges and percentages (0-100).");
+      throw new Error(t("Enter valid salary ranges and percentages (0-100)."));
     }
     return { min_salary, max_salary, percentage: parsedPercentage };
   });
@@ -52,7 +53,7 @@ const parseSalaryRanges = ranges => {
       previous.max_salary === null ||
       parsed[index].min_salary < previous.max_salary
     ) {
-      throw new Error("Salary deduction ranges cannot overlap.");
+      throw new Error(t("Salary deduction ranges cannot overlap."));
     }
   }
   return parsed;
@@ -61,7 +62,7 @@ const parseSalaryRanges = ranges => {
 const parseOtherTaxes = taxes =>
   taxes.map(({ name, percentage }) => {
     if (percentage.trim() === "") {
-      throw new Error("Complete every deduction percentage.");
+      throw new Error(t("Complete every deduction percentage."));
     }
     const parsedPercentage = Number(percentage);
     if (
@@ -70,12 +71,13 @@ const parseOtherTaxes = taxes =>
       parsedPercentage < 0 ||
       parsedPercentage > 100
     ) {
-      throw new Error("Enter a tax name and a percentage between 0 and 100.");
+      throw new Error(t("Enter a tax name and a percentage between 0 and 100."));
     }
     return { name: name.trim(), percentage: parsedPercentage };
   });
 
 export default function DeductionSetupScreen({ navigation }) {
+  useLanguage();
   const { pullFromDB, salaryStore } = useContext(Context);
   const [salaryRanges, setSalaryRanges] = useState(initialSalaryRanges);
   const [otherTaxes, setOtherTaxes] = useState(initialOtherTaxes);
@@ -110,7 +112,7 @@ export default function DeductionSetupScreen({ navigation }) {
       })
       .catch(error => {
         console.error("Failed to load deduction settings:", error);
-        Alert.alert("Could not load deduction settings", "Please try again.");
+        Alert.alert(t("Could not load deduction settings"), t("Please try again."));
       });
     return () => {
       isMounted = false;
@@ -147,7 +149,7 @@ export default function DeductionSetupScreen({ navigation }) {
       const parsedOtherTaxes = parseOtherTaxes(otherTaxes);
       await pullFromDB();
       if (!salaryStore.profileExists) {
-        throw new Error("Complete income setup before saving deductions.");
+        throw new Error(t("Complete income setup before saving deductions."));
       }
       await saveDeductionConfiguration(parsedSalaryRanges, parsedOtherTaxes);
       await pullFromDB();
@@ -160,8 +162,8 @@ export default function DeductionSetupScreen({ navigation }) {
     } catch (error) {
       console.error("Failed to save deductions:", error);
       Alert.alert(
-        "Could not save deductions",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not save deductions"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsSaving(false);
@@ -175,18 +177,18 @@ export default function DeductionSetupScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <CustomText type="header2" text="Costa Rica deductions" />
+        <CustomText type="header2" text={t("Costa Rica deductions")} />
         <CustomText
           type="body1"
-          text="Review the Hacienda income-tax brackets and CCSS contribution. These deductions are applied to fixed salary projections."
+          text={t("Review the Hacienda income-tax brackets and CCSS contribution. These deductions are applied to fixed salary projections.")}
           style={styles.intro}
         />
-        <SectionTitle text="Hacienda income-tax brackets" />
+        <SectionTitle text={t("Hacienda income-tax brackets")} />
         {salaryRanges.map((range, index) => (
           <View key={`salary-${index}`} style={styles.row}>
             <CustomTextInput
               autoCapitalize="none"
-              placeholder="Minimum-maximum (CRC)"
+              placeholder={t("Minimum-maximum (CRC)")}
               setValue={value => updateRange(index, "range", value)}
               style={styles.rangeInput}
               value={range.range}
@@ -215,15 +217,15 @@ export default function DeductionSetupScreen({ navigation }) {
             ])
           }
           style={styles.addRowButton}
-          text="Add bracket"
+          text={t("Add bracket")}
           type="secondary"
         />
 
-        <SectionTitle text="Other deductions" />
+        <SectionTitle text={t("Other deductions")} />
         {otherTaxes.map((tax, index) => (
           <View key={`other-${index}`} style={styles.row}>
             <CustomTextInput
-              placeholder="Deduction name"
+              placeholder={t("Deduction name")}
               setValue={value => updateTax(index, "name", value)}
               style={styles.rangeInput}
               value={tax.name}
@@ -252,14 +254,14 @@ export default function DeductionSetupScreen({ navigation }) {
             ])
           }
           style={styles.addRowButton}
-          text="Add deduction"
+          text={t("Add deduction")}
           type="secondary"
         />
         <CustomButton
           disabled={isSaving}
           onPress={saveDeductions}
           style={styles.saveButton}
-          text={isSaving ? "Saving..." : "Save and open Home"}
+          text={isSaving ? t("Saving...") : t("Save and open Home")}
         />
       </ScrollView>
     </SafeAreaView>

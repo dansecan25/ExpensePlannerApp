@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { accountLabel, t, useLanguage } from "../../i18n/i18n";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,12 +17,19 @@ import {
   updateSavingsAmountUsed,
 } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
-import { getRecurringDeductionOccurrenceDates } from "../../utils/recurringDeductionSchedule";
-import { getSavingsAvailableAsOfDate } from "../../utils/savingsCalculations";
+import {
+  getRecurringDeductionOccurrenceDates,
+  parseExcludedDates,
+} from "../../utils/recurringDeductionSchedule";
+import {
+  getSavingsAvailableAsOfDate,
+  getSavingsGroupPlan,
+} from "../../utils/savingsCalculations";
 import {
   dateOptions,
   EntryCard,
   money,
+  plannedTotalLabel,
   Section,
   styles,
   useFinanceData,
@@ -49,13 +57,18 @@ const getSavingsAdditionsAsOfToday = (movements, today) =>
     if (!movement.recurrence_frequency) {
       return [firstAddition];
     }
+    const firstAdditions = parseExcludedDates(movement.excluded_dates).has(
+      firstDate,
+    )
+      ? []
+      : [firstAddition];
     const recurringDates = getRecurringDeductionOccurrenceDates(
       movement,
       firstDate,
       today,
     );
     return [
-      firstAddition,
+      ...firstAdditions,
       ...recurringDates.map(date => ({
         ...movement,
         id: `${movement.id}-${date}`,
@@ -66,6 +79,7 @@ const getSavingsAdditionsAsOfToday = (movements, today) =>
   });
 
 export default function SavingsMovementsScreen({ navigation }) {
+  useLanguage();
   const { data, error, reload } = useFinanceData();
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -109,6 +123,8 @@ export default function SavingsMovementsScreen({ navigation }) {
         id: tag.id,
         name: tag.name,
         additions: [],
+        scheduled: [],
+        planned: [],
         spending: [],
         isSavingsGroup: Number(tag.is_savings_group) === 1,
       });
@@ -118,34 +134,43 @@ export default function SavingsMovementsScreen({ navigation }) {
     );
     const untagged = {
       id: null,
-      name: "Untagged savings",
+      name: t("Untagged savings"),
       additions: [],
+      scheduled: [],
+      planned: [],
       spending: [],
     };
-
-    for (const movement of savingsAdditionsToDate) {
-      const tagIds = getTagIds(movement);
-      const tagNames = getTagNames(movement);
-      const movementGroups = tagIds
+    // Tag ids are authoritative; the joined names only cover old rows, and
+    // would split a tag whose name contains a comma into phantom groups.
+    const namesWithoutIds = movement =>
+      getTagIds(movement).length ? [] : getTagNames(movement);
+    const groupsForMovement = movement => {
+      const movementGroups = getTagIds(movement)
         .map(tagId => byTag.get(tagId))
         .filter(Boolean);
-      for (const tagName of tagNames) {
-        const group = groupsByName.get(tagName.toLocaleLowerCase());
-        if (group && !movementGroups.includes(group)) {
-          movementGroups.push(group);
-        }
-        if (!group && !movementGroups.some(item => item.name === tagName)) {
-          const fallbackGroup = {
+      for (const tagName of namesWithoutIds(movement)) {
+        let group = groupsByName.get(tagName.toLocaleLowerCase());
+        if (!group) {
+          group = {
             id: `legacy-${tagName}`,
             name: tagName,
             additions: [],
+            scheduled: [],
+            planned: [],
             spending: [],
           };
-          byTag.set(fallbackGroup.id, fallbackGroup);
-          groupsByName.set(tagName.toLocaleLowerCase(), fallbackGroup);
-          movementGroups.push(fallbackGroup);
+          byTag.set(group.id, group);
+          groupsByName.set(tagName.toLocaleLowerCase(), group);
+        }
+        if (!movementGroups.includes(group)) {
+          movementGroups.push(group);
         }
       }
+      return movementGroups;
+    };
+
+    for (const movement of savingsAdditionsToDate) {
+      const movementGroups = groupsForMovement(movement);
       if (!movementGroups.length) {
         untagged.additions.push(movement);
       } else {
@@ -154,29 +179,46 @@ export default function SavingsMovementsScreen({ navigation }) {
         }
       }
     }
-    for (const movement of spendingMovements) {
-      const movementGroups = getTagIds(movement)
-        .map(tagId => byTag.get(tagId))
-        .filter(Boolean);
-      for (const tagName of getTagNames(movement)) {
-        const group = groupsByName.get(tagName.toLocaleLowerCase());
-        if (group && !movementGroups.includes(group)) {
-          movementGroups.push(group);
+    // Future-dated savings are listed under their group but not counted as
+    // available yet; every movement counts toward the group's planned total.
+    for (const movement of savingsMovements) {
+      const movementGroups = groupsForMovement(movement);
+      for (const group of movementGroups.length ? movementGroups : [untagged]) {
+        group.planned.push(movement);
+        if (movement.date.slice(0, 10) > today) {
+          group.scheduled.push(movement);
         }
       }
-      for (const group of movementGroups) {
-        if (group.additions.length) {
+    }
+    for (const movement of spendingMovements) {
+      for (const group of groupsForMovement(movement)) {
+        if (
+          group.additions.length ||
+          group.scheduled.length ||
+          group.isSavingsGroup
+        ) {
           group.spending.push(movement);
         }
       }
     }
     return [
       ...[...byTag.values()].filter(
-        group => group.additions.length || group.isSavingsGroup,
+        group =>
+          group.additions.length ||
+          group.scheduled.length ||
+          group.isSavingsGroup,
       ),
-      ...(untagged.additions.length ? [untagged] : []),
+      ...(untagged.additions.length || untagged.scheduled.length
+        ? [untagged]
+        : []),
     ];
-  }, [data?.tags, savingsAdditionsToDate, spendingMovements]);
+  }, [
+    data?.tags,
+    savingsAdditionsToDate,
+    savingsMovements,
+    spendingMovements,
+    today,
+  ]);
   const savingsAvailable = getSavingsAvailableAsOfDate(
     savingsMovements,
     today,
@@ -226,7 +268,7 @@ export default function SavingsMovementsScreen({ navigation }) {
       await reload();
     } catch (assignError) {
       console.error("Failed to assign savings movement tag:", assignError);
-      Alert.alert("Could not assign tag", "Please try again.");
+      Alert.alert(t("Could not assign tag"), t("Please try again."));
     }
   };
 
@@ -239,8 +281,8 @@ export default function SavingsMovementsScreen({ navigation }) {
       Number(movement.savings_used || 0);
     if (!Number.isFinite(amount) || amount < 0 || amount > accountAvailable) {
       Alert.alert(
-        "Check savings used",
-        "The amount used cannot exceed savings currently available in this account.",
+        t("Check savings used"),
+        t("The amount used cannot exceed savings currently available in this account."),
       );
       return;
     }
@@ -255,8 +297,8 @@ export default function SavingsMovementsScreen({ navigation }) {
     } catch (saveError) {
       console.error("Failed to update savings used:", saveError);
       Alert.alert(
-        "Could not update savings usage",
-        saveError instanceof Error ? saveError.message : "Please try again.",
+        t("Could not update savings usage"),
+        saveError instanceof Error ? saveError.message : t("Please try again."),
       );
     }
   };
@@ -264,8 +306,8 @@ export default function SavingsMovementsScreen({ navigation }) {
   const createGroup = async () => {
     if (!newGroupName.trim()) {
       Alert.alert(
-        "Enter a group name",
-        "Name the savings group before creating it.",
+        t("Enter a group name"),
+        t("Name the savings group before creating it."),
       );
       return;
     }
@@ -277,20 +319,23 @@ export default function SavingsMovementsScreen({ navigation }) {
     } catch (createError) {
       console.error("Failed to create savings group:", createError);
       Alert.alert(
-        "Could not create savings group",
-        createError instanceof Error ? createError.message : "Please try again.",
+        t("Could not create savings group"),
+        createError instanceof Error ? createError.message : t("Please try again."),
       );
     }
   };
 
   const confirmDeleteMovement = movement =>
     Alert.alert(
-      "Delete savings movement",
-      `Delete the ${money(movement.value, currency)} savings addition "${movement.name}"?`,
+      t("Delete savings movement"),
+      t('Delete the {amount} savings addition "{name}"?', {
+        amount: money(movement.value, currency),
+        name: movement.name,
+      }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("Delete"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -298,7 +343,7 @@ export default function SavingsMovementsScreen({ navigation }) {
               await reload();
             } catch (deleteError) {
               console.error("Failed to delete savings movement:", deleteError);
-              Alert.alert("Could not delete movement", "Please try again.");
+              Alert.alert(t("Could not delete movement"), t("Please try again."));
             }
           },
         },
@@ -307,12 +352,12 @@ export default function SavingsMovementsScreen({ navigation }) {
 
   const confirmDeleteGroup = group =>
     Alert.alert(
-      "Delete savings group",
-      `Remove the "${group.name}" savings group? Its savings additions will remain in history as untagged savings.`,
+      t("Delete savings group"),
+      t('Remove the "{name}" savings group? Its savings additions will remain in history as untagged savings.', { name: group.name }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Delete group",
+          text: t("Delete group"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -320,7 +365,7 @@ export default function SavingsMovementsScreen({ navigation }) {
               await reload();
             } catch (deleteError) {
               console.error("Failed to delete savings group:", deleteError);
-              Alert.alert("Could not delete savings group", "Please try again.");
+              Alert.alert(t("Could not delete savings group"), t("Please try again."));
             }
           },
         },
@@ -337,18 +382,18 @@ export default function SavingsMovementsScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <CustomText type="header2" text="Savings Movements" />
+        <CustomText type="header2" text={t("Savings Movements")} />
         <CustomText
           type="body1"
-          text="Review savings additions and record when money is used from a goal."
+          text={t("Review savings additions and record when money is used from a goal.")}
           style={styles.intro}
         />
-        <EntryCard title="Savings available as of today">
+        <EntryCard title={t("Savings available as of today")}>
           {dateOptions(money(savingsAvailable, currency))}
           {(data?.accounts || []).map(account => (
             <View key={account.id} style={styles.savingItem}>
               {dateOptions(
-                `${account.name}: ${money(
+                `${accountLabel(account.name)}: ${money(
                   savingsByAccount.get(account.id) || 0,
                   currency,
                 )}`,
@@ -356,38 +401,40 @@ export default function SavingsMovementsScreen({ navigation }) {
             </View>
           ))}
         </EntryCard>
-        <Section title="Recurring savings">
+        <Section title={t("Recurring savings")}>
           {activeSavingsRecurrences.map(movement => (
             <EntryCard
               key={movement.id}
               title={`${movement.name} · ${money(movement.value, currency)}`}
             >
-              {dateOptions(`${movement.recurrence_frequency} · ${Number(
+              {dateOptions(`${t(movement.recurrence_frequency)} · ${Number(
                 movement.recurrence_active ?? 1,
               ) !== 1
                 ? movement.recurrence_stopped_date
-                  ? `stopped ${formatDisplayDate(movement.recurrence_stopped_date)}`
-                  : "stopped"
+                  ? t("stopped {date}", { date: formatDisplayDate(movement.recurrence_stopped_date) })
+                  : t("stopped")
                 : movement.recurrence_end_date &&
                     movement.recurrence_end_date < today
-                  ? `ended ${formatDisplayDate(movement.recurrence_end_date)}`
+                  ? t("ended {date}", { date: formatDisplayDate(movement.recurrence_end_date) })
                   : movement.recurrence_end_date
-                    ? `until ${formatDisplayDate(movement.recurrence_end_date)}`
-                    : "ongoing"}`)}
+                    ? t("until {date}", { date: formatDisplayDate(movement.recurrence_end_date) })
+                    : t("ongoing")}`)}
               {dateOptions(
-                `Account: ${
-                  accountNames.get(movement.account_id) || "Main account"
-                }`,
+                t("Account: {name}", {
+                  name: accountLabel(
+                    accountNames.get(movement.account_id) || "Main account",
+                  ),
+                }),
               )}
             </EntryCard>
           ))}
           {activeSavingsRecurrences.length === 0
-            ? dateOptions("No recurring savings movements.")
+            ? dateOptions(t("No recurring savings movements."))
             : null}
         </Section>
         <Section>
           <View style={localStyles.groupHeading}>
-            <CustomText type="header3" text="Savings groups" />
+            <CustomText type="header3" text={t("Savings groups")} />
             <CustomButton
               onPress={() => setIsCreatingGroup(value => !value)}
               style={localStyles.addGroupButton}
@@ -399,7 +446,7 @@ export default function SavingsMovementsScreen({ navigation }) {
             <View style={localStyles.createGroupForm}>
               <CustomTextInput
                 autoCapitalize="words"
-                placeholder="Savings group name"
+                placeholder={t("Savings group name")}
                 setValue={setNewGroupName}
                 value={newGroupName}
               />
@@ -407,7 +454,7 @@ export default function SavingsMovementsScreen({ navigation }) {
                 <CustomButton
                   onPress={createGroup}
                   style={styles.smallButton}
-                  text="Create group"
+                  text={t("Create group")}
                 />
                 <CustomButton
                   onPress={() => {
@@ -415,13 +462,13 @@ export default function SavingsMovementsScreen({ navigation }) {
                     setNewGroupName("");
                   }}
                   style={styles.smallButton}
-                  text="Cancel"
+                  text={t("Cancel")}
                   type="secondary"
                 />
               </View>
             </View>
           ) : null}
-          {error ? dateOptions("Could not load savings movements.") : null}
+          {error ? dateOptions(t("Could not load savings movements.")) : null}
           {groups.map(group => {
             const groupTotal = group.additions.reduce(
               (total, movement) => total + Number(movement.value || 0),
@@ -440,20 +487,28 @@ export default function SavingsMovementsScreen({ navigation }) {
                   (total, movement) => total + Number(movement.value || 0),
                   0,
                 );
+            const plan = getSavingsGroupPlan(
+              group.planned,
+              group.spending,
+              today,
+            );
             return (
               <EntryCard key={group.id ?? "untagged"} title={group.name}>
-                {dateOptions(`Available: ${money(groupTotal, currency)}`)}
+                {dateOptions(t("Available: {amount}", { amount: money(groupTotal, currency) }))}
+                {plan
+                  ? dateOptions(plannedTotalLabel(plan, currency))
+                  : null}
                 <CustomButton
                   onPress={() => addSpending(group)}
                   style={styles.inlineButton}
-                  text="Record expense from this group"
+                  text={t("Record expense from this group")}
                   type="secondary"
                 />
                 {typeof group.id === "number" ? (
                   <CustomButton
                     onPress={() => confirmDeleteGroup(group)}
                     style={styles.inlineButton}
-                    text="Delete savings group"
+                    text={t("Delete savings group")}
                     type="warning"
                   />
                 ) : null}
@@ -462,7 +517,7 @@ export default function SavingsMovementsScreen({ navigation }) {
                     {dateOptions(
                       `${formatDisplayDate(movement.date)} · ${movement.name}${
                         movement.isRecurringOccurrence
-                          ? " · Recurring contribution"
+                          ? ` · ${t("Recurring contribution")}`
                           : ""
                       } · ${money(
                         movement.value,
@@ -471,7 +526,7 @@ export default function SavingsMovementsScreen({ navigation }) {
                     )}
                     {!movement.isRecurringOccurrence ? (
                       <>
-                        <CustomText type="body4" text="Amount used from this account's savings" />
+                        <CustomText type="body4" text={t("Amount used from this account's savings")} />
                         <CustomTextInput
                           keyboardType="decimal-pad"
                           placeholder="0"
@@ -491,13 +546,13 @@ export default function SavingsMovementsScreen({ navigation }) {
                         <CustomButton
                           onPress={() => saveSavingsUsed(movement)}
                           style={styles.inlineButton}
-                          text="Save amount used"
+                          text={t("Save amount used")}
                           type="secondary"
                         />
                         <CustomButton
                           onPress={() => confirmDeleteMovement(movement)}
                           style={styles.inlineButton}
-                          text="Delete movement"
+                          text={t("Delete movement")}
                           type="warning"
                         />
                       </>
@@ -512,7 +567,33 @@ export default function SavingsMovementsScreen({ navigation }) {
                         keyboardAvoiding={false}
                         labelField="label"
                         onChange={item => assignTag(movement, item.value)}
-                        placeholder="Assign existing tag"
+                        placeholder={t("Assign existing tag")}
+                        placeholderStyle={dropdownStyles.placeholderText}
+                        selectedTextStyle={dropdownStyles.selectedText}
+                        style={[dropdownStyles.input, styles.inputSpacing]}
+                        value={null}
+                        valueField="value"
+                      />
+                    ) : null}
+                  </View>
+                ))}
+                {group.scheduled.map(movement => (
+                  <View key={`scheduled-${movement.id}`} style={styles.savingItem}>
+                    {dateOptions(
+                      t("Scheduled {date} · {name} · {amount}", {
+                        date: formatDisplayDate(movement.date),
+                        name: movement.name,
+                        amount: money(movement.value, currency),
+                      }),
+                    )}
+                    {group.id === null && tagOptions.length ? (
+                      <Dropdown
+                        data={tagOptions}
+                        dropdownPosition="bottom"
+                        keyboardAvoiding={false}
+                        labelField="label"
+                        onChange={item => assignTag(movement, item.value)}
+                        placeholder={t("Assign existing tag")}
                         placeholderStyle={dropdownStyles.placeholderText}
                         selectedTextStyle={dropdownStyles.selectedText}
                         style={[dropdownStyles.input, styles.inputSpacing]}
@@ -524,7 +605,7 @@ export default function SavingsMovementsScreen({ navigation }) {
                 ))}
                 {group.spending.length ? (
                   <View style={styles.savingItem}>
-                    <CustomText type="body4" text="Recorded expenses" />
+                    <CustomText type="body4" text={t("Recorded expenses")} />
                     {group.spending.map(movement => (
                       <View key={movement.id}>
                         {dateOptions(
@@ -541,7 +622,7 @@ export default function SavingsMovementsScreen({ navigation }) {
             );
           })}
           {groups.length === 0
-            ? dateOptions("Mark an expense as savings to create a savings group.")
+            ? dateOptions(t("Mark an expense as savings to create a savings group."))
             : null}
         </Section>
       </ScrollView>

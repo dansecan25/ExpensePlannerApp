@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { t, useLanguage } from "../../i18n/i18n";
 import {
   FlatList,
   Modal,
@@ -17,12 +18,13 @@ export default function CustomDropdown({
   valueField = "value",
   value,
   onChange,
-  placeholder = "Select an option",
+  placeholder = t("Select an option"),
   style,
   disabled = false,
   searchable = true,
-  searchPlaceholder = "Search",
+  searchPlaceholder = t("Search"),
 }) {
+  useLanguage();
   useTheme();
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState("");
@@ -120,7 +122,7 @@ export default function CustomDropdown({
                     { color: getColors("secondaryText") },
                   ]}
                 >
-                  No matching options
+                  {t("No matching options")}
                 </Text>
               }
               renderItem={({ item }) => {

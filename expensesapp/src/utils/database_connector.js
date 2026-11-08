@@ -1,4 +1,5 @@
 import { open } from "react-native-nitro-sqlite";
+import { isSupportedLanguage, t } from "../i18n/i18n";
 
 export const getDB = () => {
   if (!globalThis.__financeDB) {
@@ -271,6 +272,9 @@ export const initDatabase = async () => {
   );
   await ensureColumn(db, "salary", "setup_complete", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(db, "accounts", "opening_balance", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(db, "accounts", "account_type", "TEXT NOT NULL DEFAULT 'bank'");
+  await ensureColumn(db, "accounts", "credit_cut_day", "INTEGER");
+  await ensureColumn(db, "accounts", "credit_payment_day", "INTEGER");
   await ensureColumn(db, "tags", "color", "TEXT NOT NULL DEFAULT '#4261a0'");
   await ensureColumn(db, "tags", "is_savings_group", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "months_expenses", "kind", "TEXT NOT NULL DEFAULT 'expense'");
@@ -299,11 +303,13 @@ export const initDatabase = async () => {
   await ensureColumn(db, "subscriptions", "inflated_value", "REAL");
   await ensureColumn(db, "account_transfers", "excluded_dates", "TEXT");
   await ensureColumn(db, "salary", "excluded_dates", "TEXT");
+  await ensureColumn(db, "salary", "language", "TEXT NOT NULL DEFAULT 'en'");
   await db.execute(`
     UPDATE months_expenses
     SET created_at = CURRENT_TIMESTAMP
     WHERE created_at IS NULL;
   `);
+  await syncSavingsGroupFlags(db);
   const defaultAccountId = await getDefaultAccountId(db);
   if (defaultAccountId !== null) {
     await db.executeAsync(
@@ -380,6 +386,7 @@ export const addSalary = async ({
   deposits_date,
   fixed_day,
   salaryAccountName = "Main account",
+  language = "en",
 }) => {
   const db = getDB();
   const date = getLocalDate();
@@ -396,8 +403,8 @@ export const addSalary = async ({
     : await getDefaultAccountId(db);
   const result = await db.executeAsync(
     `INSERT INTO salary
-      (amount, balance, last_deposit, currency, fixed, deposits_date, fixed_day, account_id, setup_complete)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0
+      (amount, balance, last_deposit, currency, fixed, deposits_date, fixed_day, account_id, setup_complete, language)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, ?
      WHERE NOT EXISTS (SELECT 1 FROM salary);`,
     [
       Number.isFinite(amount) ? amount : null,
@@ -408,6 +415,7 @@ export const addSalary = async ({
       deposits_date || null,
       fixed_day ?? null,
       salaryAccountId,
+      language,
     ],
   );
   await db.executeAsync(
@@ -431,21 +439,21 @@ export const addSalary = async ({
 export const updateSalaryAmount = async amount => {
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-    throw new Error("Enter a salary amount greater than zero.");
+    throw new Error(t("Enter a salary amount greater than zero."));
   }
   const result = await getDB().executeAsync(
     "UPDATE salary SET amount = ? WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);",
     [numericAmount],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("Set up an income profile before changing the salary.");
+    throw new Error(t("Set up an income profile before changing the salary."));
   }
 };
 
 export const updateSalarySavingsMode = async (enabled, amount) => {
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount < 0) {
-    throw new Error("Enter a savings amount of zero or more.");
+    throw new Error(t("Enter a savings amount of zero or more."));
   }
   const result = await getDB().executeAsync(
     `UPDATE salary
@@ -454,20 +462,32 @@ export const updateSalarySavingsMode = async (enabled, amount) => {
     [enabled ? 1 : 0, numericAmount],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("Set up an income profile before enabling Savings mode.");
+    throw new Error(t("Set up an income profile before enabling Savings mode."));
   }
+};
+
+// With no profile yet there is nothing to update: setup keeps the choice in
+// memory and saves it with the profile.
+export const updateLanguage = async language => {
+  if (!isSupportedLanguage(language)) {
+    throw new Error(t("Choose a supported language."));
+  }
+  await getDB().executeAsync(
+    "UPDATE salary SET language = ? WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);",
+    [language],
+  );
 };
 
 export const updateThemeMode = async mode => {
   if (!["system", "light", "dark"].includes(mode)) {
-    throw new Error("Choose system, light, or dark appearance.");
+    throw new Error(t("Choose system, light, or dark appearance."));
   }
   const result = await getDB().executeAsync(
     "UPDATE salary SET theme_mode = ? WHERE id = (SELECT id FROM salary ORDER BY id LIMIT 1);",
     [mode],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("Set up your profile before changing appearance.");
+    throw new Error(t("Set up your profile before changing appearance."));
   }
 };
 
@@ -487,10 +507,10 @@ export const saveSalaryScheduleChange = async ({
   accountId,
 }) => {
   if (!isValidLocalDate(effectiveDate)) {
-    throw new Error("Choose a valid salary change effective date.");
+    throw new Error(t("Choose a valid salary change effective date."));
   }
   if (!["fixed", "variable", "unemployed"].includes(incomeType)) {
-    throw new Error("Choose fixed salary, variable income, or unemployed.");
+    throw new Error(t("Choose fixed salary, variable income, or unemployed."));
   }
   const numericAmount =
     amount === null || amount === undefined || amount === ""
@@ -508,7 +528,7 @@ export const saveSalaryScheduleChange = async ({
           Number(fixedDay) < 1 ||
           Number(fixedDay) > 31)))
   ) {
-    throw new Error("Enter a valid salary amount and deposit schedule.");
+    throw new Error(t("Enter a valid salary amount and deposit schedule."));
   }
   await getDB().executeBatchAsync([
     {
@@ -580,21 +600,59 @@ export const saveDeductionConfiguration = async (ranges, taxes) => {
   await getDB().executeBatchAsync(statements);
 };
 
+const validateCreditDay = (day, label) => {
+  const numericDay = Number(day);
+  if (!Number.isInteger(numericDay) || numericDay < 1 || numericDay > 31) {
+    throw new Error(t("{label} must be a day of the month from 1 to 31.", { label }));
+  }
+  return numericDay;
+};
+
 export const createAccount = async (
   name,
   color = "#4261a0",
   openingBalance = 0,
+  { accountType = "bank", cutDay = null, paymentDay = null } = {},
 ) => {
   const normalizedName = name.trim();
   if (!normalizedName) {
-    throw new Error("Account name is required.");
+    throw new Error(t("Account name is required."));
+  }
+  const isCredit = accountType === "credit";
+  if (isCredit && normalizedName.toLocaleLowerCase() === "main account") {
+    throw new Error(t("Main account cannot be a credit account. Choose another name."));
   }
   const db = getDB();
   await db.executeAsync(
-    "INSERT INTO accounts (name, color, opening_balance) VALUES (?, ?, ?);",
-    [normalizedName, color, Number(openingBalance) || 0],
+    `INSERT INTO accounts
+      (name, color, opening_balance, account_type, credit_cut_day, credit_payment_day)
+     VALUES (?, ?, ?, ?, ?, ?);`,
+    [
+      normalizedName,
+      color,
+      Number(openingBalance) || 0,
+      isCredit ? "credit" : "bank",
+      isCredit ? validateCreditDay(cutDay, t("Cut date")) : null,
+      isCredit ? validateCreditDay(paymentDay, t("Payment date")) : null,
+    ],
   );
   await getDefaultAccountId(db);
+};
+
+export const updateCreditAccountDates = async (id, cutDay, paymentDay) => {
+  const result = await getDB().executeAsync(
+    `UPDATE accounts
+     SET credit_cut_day = ?, credit_payment_day = ?
+     WHERE id = ? AND account_type = 'credit';`,
+    [
+      validateCreditDay(cutDay, t("Cut date")),
+      validateCreditDay(paymentDay, t("Payment date")),
+      id,
+    ],
+  );
+  if (result.rowsAffected === 0) {
+    throw new Error(t("The credit account could not be found."));
+  }
 };
 
 export const deleteAccount = async id => {
@@ -604,7 +662,7 @@ export const deleteAccount = async id => {
     [id],
   );
   if (!deletedResult.rows.length) {
-    throw new Error("The account could not be found.");
+    throw new Error(t("The account could not be found."));
   }
   const deletedAccount = deletedResult.rows.item(0);
   const mainResult = await db.execute(
@@ -785,10 +843,10 @@ export const getAccountsCreated = async () => {
 export const createTag = async (name, color = "#4261a0") => {
   const normalizedName = name.trim();
   if (!normalizedName) {
-    throw new Error("Tag name is required.");
+    throw new Error(t("Tag name is required."));
   }
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
-    throw new Error("Tag color must be a six-digit hexadecimal color.");
+    throw new Error(t("Tag color must be a six-digit hexadecimal color."));
   }
   const db = getDB();
   const existingResult = await db.execute(
@@ -808,7 +866,7 @@ export const createTag = async (name, color = "#4261a0") => {
   );
   const tag = result.rows.length ? result.rows.item(0) : null;
   if (!tag) {
-    throw new Error("The tag could not be created.");
+    throw new Error(t("The tag could not be created."));
   }
   return tag;
 };
@@ -829,6 +887,22 @@ export const createSavingsGroupTag = async (name, color = "#4261a0") => {
   return { ...tag, is_savings_group: 1 };
 };
 
+// A tag used on any savings movement is a savings group, whether it was
+// created on the Savings screen or typed into a transaction form.
+const syncSavingsGroupFlags = async db => {
+  await db.executeAsync(
+    `UPDATE tags
+     SET is_savings_group = 1
+     WHERE is_savings_group = 0
+       AND id IN (
+         SELECT et.tag_id
+         FROM expense_tags et
+         JOIN months_expenses e ON e.id = et.expense_id
+         WHERE e.is_savings = 1
+       );`,
+  );
+};
+
 export const insertExpense = async (
   name,
   value,
@@ -843,13 +917,13 @@ export const insertExpense = async (
   const numericValue = Number(value);
   const kind = options.kind || "expense";
   if (!normalizedName || !Number.isFinite(numericValue) || numericValue <= 0) {
-    throw new Error("Enter an expense name and a positive amount.");
+    throw new Error(t("Enter an expense name and a positive amount."));
   }
   if (!["income", "expense", "savings", "savings_use"].includes(kind)) {
-    throw new Error("Choose a valid transaction type.");
+    throw new Error(t("Choose a valid transaction type."));
   }
   if (!isValidLocalDate(date)) {
-    throw new Error("Enter a valid transaction date.");
+    throw new Error(t("Enter a valid transaction date."));
   }
   const numericInflatedValue =
     inflatedValue === undefined || inflatedValue === null || inflatedValue === ""
@@ -859,7 +933,7 @@ export const insertExpense = async (
     numericInflatedValue !== null &&
     (!Number.isFinite(numericInflatedValue) || numericInflatedValue < numericValue)
   ) {
-    throw new Error("The projected amount must be at least the transaction amount.");
+    throw new Error(t("The projected amount must be at least the transaction amount."));
   }
   const recurrenceFrequency = options.recurrenceFrequency ?? null;
   const recurrenceEndDate = options.recurrenceEndDate || null;
@@ -868,7 +942,7 @@ export const insertExpense = async (
     (kind === "income" ||
       !["weekly", "monthly", "yearly"].includes(recurrenceFrequency))
   ) {
-    throw new Error("Choose a valid recurrence for a deduction.");
+    throw new Error(t("Choose a valid recurrence for a deduction."));
   }
   if (
     recurrenceEndDate !== null &&
@@ -876,7 +950,7 @@ export const insertExpense = async (
       recurrenceEndDate < date ||
       recurrenceFrequency === null)
   ) {
-    throw new Error("Choose a valid recurrence end date.");
+    throw new Error(t("Choose a valid recurrence end date."));
   }
   const db = getDB();
   const resolvedAccountId = accountId ?? (await getDefaultAccountId(db));
@@ -906,13 +980,14 @@ export const insertExpense = async (
       [result.insertId, tagId],
     );
   }
+  await syncSavingsGroupFlags(db);
   return result.insertId;
 };
 
 export const updateSavingsAmountUsed = async (expenseId, amountUsed) => {
   const numericAmount = Number(amountUsed);
   if (!Number.isInteger(Number(expenseId)) || !Number.isFinite(numericAmount) || numericAmount < 0) {
-    throw new Error("Enter a valid amount used from savings.");
+    throw new Error(t("Enter a valid amount used from savings."));
   }
   const result = await getDB().executeAsync(
     `UPDATE months_expenses
@@ -921,7 +996,7 @@ export const updateSavingsAmountUsed = async (expenseId, amountUsed) => {
     [numericAmount, Number(expenseId)],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("The savings movement could not be found.");
+    throw new Error(t("The savings movement could not be found."));
   }
 };
 
@@ -972,12 +1047,13 @@ export const assignSavingsMovementTag = async (expenseId, tagId) => {
     [expenseId],
   );
   if (!expense.rows.length) {
-    throw new Error("The savings movement could not be found.");
+    throw new Error(t("The savings movement could not be found."));
   }
   await db.executeAsync(
     "INSERT OR IGNORE INTO expense_tags (expense_id, tag_id) VALUES (?, ?);",
     [expenseId, tagId],
   );
+  await syncSavingsGroupFlags(db);
 };
 
 export const getExpensesBy = async ({
@@ -1073,13 +1149,13 @@ export const addSubscription = async ({
   const normalizedName = name.trim();
   const numericAmount = Number(amount);
   if (!normalizedName || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-    throw new Error("Enter a subscription name and a positive amount.");
+    throw new Error(t("Enter a subscription name and a positive amount."));
   }
   if (!isValidLocalDate(startDate) || !["monthly", "annual", "custom"].includes(frequency)) {
-    throw new Error("Choose a start date and a valid recurrence.");
+    throw new Error(t("Choose a start date and a valid recurrence."));
   }
   if (frequency === "custom" && (!Number.isInteger(intervalDays) || intervalDays < 1)) {
-    throw new Error("Custom recurrence must be at least one day.");
+    throw new Error(t("Custom recurrence must be at least one day."));
   }
   const db = getDB();
   const resolvedAccountId = accountId ?? (await getDefaultAccountId(db));
@@ -1163,7 +1239,7 @@ export const createAccountTransfer = async ({
         recurrenceFrequency === null))
   ) {
     throw new Error(
-      "Choose a valid date, two different accounts, and an amount within the source account's available balance.",
+      t("Choose a valid date, two different accounts, and an amount within the source account's available balance."),
     );
   }
   const result = await getDB().executeAsync(
@@ -1190,7 +1266,7 @@ export const deleteAccountTransfer = async id => {
     [Number(id)],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("The account transfer could not be found.");
+    throw new Error(t("The account transfer could not be found."));
   }
 };
 
@@ -1204,7 +1280,7 @@ export const stopAccountTransferRecurrence = async id => {
     [getLocalDate(), Number(id)],
   );
   if (result.rowsAffected === 0) {
-    throw new Error("This recurring transfer is already stopped or no longer exists.");
+    throw new Error(t("This recurring transfer is already stopped or no longer exists."));
   }
 };
 
@@ -1268,7 +1344,7 @@ const validateDatabaseBackup = async backup => {
     typeof backup.tables !== "object" ||
     Array.isArray(backup.tables)
   ) {
-    throw new Error("This is not a supported Expense Planner database backup.");
+    throw new Error(t("This is not a supported Expense Planner database backup."));
   }
   const providedTables = Object.keys(backup.tables).sort();
   const expectedTables = [...DATABASE_TABLES]
@@ -1279,7 +1355,7 @@ const validateDatabaseBackup = async backup => {
     providedTables.some(table => !allowedTables.includes(table)) ||
     expectedTables.some(table => !providedTables.includes(table))
   ) {
-    throw new Error("The backup does not contain all expected database tables.");
+    throw new Error(t("The backup does not contain all expected database tables."));
   }
 
   const db = getDB();
@@ -1292,16 +1368,16 @@ const validateDatabaseBackup = async backup => {
       backup.tables[table] !== undefined &&
       !Array.isArray(backup.tables[table])
     ) {
-      throw new Error(`The backup data for "${table}" is invalid.`);
+      throw new Error(t('The backup data for "{table}" is invalid.', { table }));
     }
     for (const row of backup.tables[table] || []) {
       if (!row || typeof row !== "object" || Array.isArray(row)) {
-        throw new Error(`The backup contains an invalid row in "${table}".`);
+        throw new Error(t('The backup contains an invalid row in "{table}".', { table }));
       }
       for (const [column, value] of Object.entries(row)) {
         if (!columnNames.has(column)) {
           throw new Error(
-            `The backup contains an unsupported "${table}.${column}" field.`,
+            t('The backup contains an unsupported "{field}" field.', { field: `${table}.${column}` }),
           );
         }
         if (
@@ -1310,10 +1386,10 @@ const validateDatabaseBackup = async backup => {
           typeof value !== "number" &&
           typeof value !== "boolean"
         ) {
-          throw new Error(`The backup contains an invalid value in "${table}".`);
+          throw new Error(t('The backup contains an invalid value in "{table}".', { table }));
         }
         if (typeof value === "number" && !Number.isFinite(value)) {
-          throw new Error(`The backup contains an invalid number in "${table}".`);
+          throw new Error(t('The backup contains an invalid number in "{table}".', { table }));
         }
       }
     }
@@ -1329,11 +1405,13 @@ export const replaceDatabaseFromBackup = async backupContent => {
         ? JSON.parse(backupContent)
         : backupContent;
   } catch (error) {
-    throw new Error("The selected backup file is not valid JSON.");
+    throw new Error(t("The selected backup file is not valid JSON."));
   }
 
   const columnsByTable = await validateDatabaseBackup(backup);
   const db = getDB();
+  // Backups made before languages existed should not switch the app's language.
+  const languageBeforeRestore = (await getSalaryRow())?.language;
   let transactionStarted = false;
   try {
     await db.executeAsync("PRAGMA foreign_keys = OFF;");
@@ -1347,11 +1425,15 @@ export const replaceDatabaseFromBackup = async backupContent => {
     for (const table of DATABASE_TABLES) {
       const allowedColumns = columnsByTable.get(table);
       for (const row of backup.tables[table] || []) {
-        const entries = Object.entries(row).filter(([column]) =>
+        const entries = Object.entries(
+          table === "salary" && row.language === undefined && languageBeforeRestore
+            ? { ...row, language: languageBeforeRestore }
+            : row,
+        ).filter(([column]) =>
           allowedColumns.has(column),
         );
         if (!entries.length) {
-          throw new Error(`The backup contains an empty row in "${table}".`);
+          throw new Error(t('The backup contains an empty row in "{table}".', { table }));
         }
         const columns = entries.map(([column]) => `"${column}"`).join(", ");
         const placeholders = entries.map(() => "?").join(", ");
@@ -1376,12 +1458,13 @@ export const replaceDatabaseFromBackup = async backupContent => {
         [defaultAccountId],
       );
     }
+    await syncSavingsGroupFlags(db);
 
     const foreignKeyViolations = readRows(
       await db.execute("PRAGMA foreign_key_check;"),
     );
     if (foreignKeyViolations.length) {
-      throw new Error("The backup contains invalid account, tag, or movement references.");
+      throw new Error(t("The backup contains invalid account, tag, or movement references."));
     }
     await db.executeAsync("COMMIT;");
     transactionStarted = false;
@@ -1443,7 +1526,7 @@ const addExcludedDate = async (db, sourceType, sourceId, date) => {
     [sourceId],
   );
   if (!result.rows.length) {
-    throw new Error("The original movement could not be found.");
+    throw new Error(t("The original movement could not be found."));
   }
   const dates = new Set(splitExcludedDates(result.rows.item(0).excluded_dates));
   dates.add(date);
@@ -1483,13 +1566,13 @@ const validateMovementValues = values => {
       ? null
       : Number(values.inflatedValue);
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error("Enter a positive amount.");
+    throw new Error(t("Enter a positive amount."));
   }
   if (!isValidLocalDate(values.date)) {
-    throw new Error("Enter a valid date.");
+    throw new Error(t("Enter a valid date."));
   }
   if (inflated !== null && (!Number.isFinite(inflated) || inflated < amount)) {
-    throw new Error("The projected amount must be at least the actual amount.");
+    throw new Error(t("The projected amount must be at least the actual amount."));
   }
   return { amount, inflated };
 };
@@ -1504,11 +1587,11 @@ const validateRecurrence = (frequency, endDate, startDate, kind) => {
     kind === "savings_use"
   ) {
     throw new Error(
-      "Only deductions and savings can repeat. Turn off repeating or change the type.",
+      t("Only deductions and savings can repeat. Turn off repeating or change the type."),
     );
   }
   if (endDate && (!isValidLocalDate(endDate) || endDate < startDate)) {
-    throw new Error("Choose a valid recurrence end date.");
+    throw new Error(t("Choose a valid recurrence end date."));
   }
 };
 
@@ -1538,16 +1621,17 @@ const replaceExpenseTags = async (db, expenseId, tagIds) => {
       [expenseId, tagId],
     );
   }
+  await syncSavingsGroupFlags(db);
 };
 
 const insertStandaloneExpense = async (db, values, existing) => {
   const { amount, inflated } = validateMovementValues(values);
   if (!MOVEMENT_KINDS.includes(values.kind)) {
-    throw new Error("Choose a valid transaction type.");
+    throw new Error(t("Choose a valid transaction type."));
   }
   const name = String(values.name || "").trim();
   if (!name) {
-    throw new Error("Enter a name.");
+    throw new Error(t("Enter a name."));
   }
   const flags = savingsFlagsFor(values.kind, existing);
   const accountId = values.accountId ?? (await getDefaultAccountId(db));
@@ -1578,11 +1662,11 @@ const updateExpenseRow = async (db, existing, values, startDate) => {
     date: startDate,
   });
   if (!MOVEMENT_KINDS.includes(values.kind)) {
-    throw new Error("Choose a valid transaction type.");
+    throw new Error(t("Choose a valid transaction type."));
   }
   const name = String(values.name || "").trim();
   if (!name) {
-    throw new Error("Enter a name.");
+    throw new Error(t("Enter a name."));
   }
   const frequency = values.recurrenceFrequency || null;
   const endDate = frequency ? values.recurrenceEndDate || null : null;
@@ -1647,7 +1731,7 @@ const validateTransferValues = values => {
     Number(values.toAccountId) < 1 ||
     Number(values.fromAccountId) === Number(values.toAccountId)
   ) {
-    throw new Error("Choose two different accounts for the transfer.");
+    throw new Error(t("Choose two different accounts for the transfer."));
   }
 };
 
@@ -1676,7 +1760,7 @@ export const saveMovementEdit = async ({
       [id],
     );
     if (!existing) {
-      throw new Error("The movement could not be found.");
+      throw new Error(t("The movement could not be found."));
     }
     const recurring = Boolean(existing.recurrence_frequency);
     if (!recurring || scope === "all") {
@@ -1701,7 +1785,7 @@ export const saveMovementEdit = async ({
       [id],
     );
     if (!existing) {
-      throw new Error("The subscription could not be found.");
+      throw new Error(t("The subscription could not be found."));
     }
     if (scope === "instance") {
       await insertStandaloneExpense(db, values, null);
@@ -1720,16 +1804,16 @@ export const saveMovementEdit = async ({
     const frequency = values.frequency;
     const intervalDays = Number(values.intervalDays);
     if (!name) {
-      throw new Error("Enter a name.");
+      throw new Error(t("Enter a name."));
     }
     if (!["monthly", "annual", "custom"].includes(frequency)) {
-      throw new Error("Choose a valid recurrence.");
+      throw new Error(t("Choose a valid recurrence."));
     }
     if (frequency === "custom" && (!Number.isInteger(intervalDays) || intervalDays < 1)) {
-      throw new Error("Custom recurrence must be at least one day.");
+      throw new Error(t("Custom recurrence must be at least one day."));
     }
     if (values.kind !== "expense" && values.kind !== "savings") {
-      throw new Error("A subscription must be a deduction or a savings contribution.");
+      throw new Error(t("A subscription must be a deduction or a savings contribution."));
     }
     await db.executeAsync(
       `UPDATE subscriptions
@@ -1768,7 +1852,7 @@ export const saveMovementEdit = async ({
       [id],
     );
     if (!existing) {
-      throw new Error("The account transfer could not be found.");
+      throw new Error(t("The account transfer could not be found."));
     }
     validateTransferValues(values);
     const recurring = Boolean(existing.recurrence_frequency);
@@ -1786,10 +1870,10 @@ export const saveMovementEdit = async ({
     const frequency = values.recurrenceFrequency || null;
     const endDate = frequency ? values.recurrenceEndDate || null : null;
     if (frequency && !["weekly", "monthly", "yearly"].includes(frequency)) {
-      throw new Error("Choose a valid recurrence.");
+      throw new Error(t("Choose a valid recurrence."));
     }
     if (endDate && (!isValidLocalDate(endDate) || endDate < startDate)) {
-      throw new Error("Choose a valid recurrence end date.");
+      throw new Error(t("Choose a valid recurrence end date."));
     }
     await db.executeAsync(
       `UPDATE account_transfers
@@ -1827,7 +1911,7 @@ export const saveMovementEdit = async ({
     await addExcludedDate(db, "salary", id, occurrenceDate);
     return;
   }
-  throw new Error("This movement cannot be edited.");
+  throw new Error(t("This movement cannot be edited."));
 };
 
 /**
@@ -1850,7 +1934,7 @@ export const deleteMovement = async ({
       [id],
     );
     if (!existing) {
-      throw new Error("The movement could not be found.");
+      throw new Error(t("The movement could not be found."));
     }
     if (!existing.recurrence_frequency || scope === "all") {
       await deleteExpense(id);
@@ -1874,7 +1958,7 @@ export const deleteMovement = async ({
       [id],
     );
     if (!existing) {
-      throw new Error("The account transfer could not be found.");
+      throw new Error(t("The account transfer could not be found."));
     }
     if (!existing.recurrence_frequency || scope === "all") {
       await deleteAccountTransfer(id);
@@ -1887,5 +1971,5 @@ export const deleteMovement = async ({
     await addExcludedDate(db, "salary", id, occurrenceDate);
     return;
   }
-  throw new Error("This movement cannot be deleted.");
+  throw new Error(t("This movement cannot be deleted."));
 };

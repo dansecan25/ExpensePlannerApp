@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { accountLabel, t, useLanguage } from "../../i18n/i18n";
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import {
   errorCodes,
@@ -11,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import CustomButton from "../../components/customButton/customButton";
 import DatePicker from "../../components/datePicker/DatePicker";
 import CustomText from "../../components/customText/customText";
+import EditMovementButton from "../../components/editMovementButton/EditMovementButton";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
 import { getLocalDate, isValidLocalDate } from "../../utils/database_connector";
 import { Dirs, FileSystem } from "react-native-file-access";
@@ -19,9 +21,21 @@ import {
   getBalanceOnDate,
   getCashflowProjection,
 } from "../../utils/financeCalculations";
-import { formatDisplayDate } from "../../utils/dateFormatting";
-import { getSavingsAvailableAsOfDate } from "../../utils/savingsCalculations";
-import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
+import { formatDisplayDate, formatMonthYear } from "../../utils/dateFormatting";
+import { getEditTarget } from "../../utils/movementEditTarget";
+import {
+  getSavingsAvailableAsOfDate,
+  getSavingsGroupPlan,
+} from "../../utils/savingsCalculations";
+import {
+  dateOptions,
+  EntryCard,
+  money,
+  plannedTotalLabel,
+  Section,
+  styles,
+  useFinanceData,
+} from "./Shared";
 
 const daysBetween = (fromDate, toDate) => {
   const [fromYear, fromMonth, fromDay] = fromDate.split("-").map(Number);
@@ -59,46 +73,8 @@ const movementType = event =>
         ? "income"
         : "deduction";
 
-// Describes which stored record produced a projected movement so the
-// "Edit movement" screen can load and change it.
-const getEditTarget = event => {
-  const base = { occurrenceDate: event.date };
-  if (event.account_transfer) {
-    return { ...base, sourceType: "transfer", sourceId: event.transfer_id };
-  }
-  if (event.subscription) {
-    return {
-      ...base,
-      sourceType: "subscription",
-      sourceId: event.subscription_id,
-    };
-  }
-  if (event.source === "salary") {
-    return {
-      ...base,
-      sourceType: "salary",
-      sourceId: null,
-      occurrenceAmount: Number(event.amount ?? 0),
-      occurrenceAccountId: event.account_id ?? null,
-    };
-  }
-  return {
-    ...base,
-    sourceType: "expense",
-    sourceId: event.recurring_deduction ? event.source_expense_id : event.id,
-  };
-};
-
-function PencilIcon({ color = "#FFFFFF" }) {
-  return (
-    <View style={dashboardStyles.pencil}>
-      <View style={[dashboardStyles.pencilBody, { backgroundColor: color }]} />
-      <View style={[dashboardStyles.pencilTip, { borderTopColor: color }]} />
-    </View>
-  );
-}
-
 export default function BalanceScreen() {
+  useLanguage();
   const navigation = useNavigation();
   const { data, error } = useFinanceData();
   const [isExportingReport, setIsExportingReport] = useState(false);
@@ -231,7 +207,7 @@ export default function BalanceScreen() {
       savingsAtRangeStart === null ||
       savingsAtRangeEnd === null
     ) {
-      Alert.alert("Report unavailable", "Load finance data and choose a valid date range before exporting.");
+      Alert.alert(t("Report unavailable"), t("Load finance data and choose a valid date range before exporting."));
       return;
     }
 
@@ -352,14 +328,14 @@ export default function BalanceScreen() {
       });
       if (!savedDocument || savedDocument.error) {
         throw new Error(
-          savedDocument?.error || "The balance report could not be saved.",
+          savedDocument?.error || t("The balance report could not be saved."),
         );
       }
       Alert.alert(
-        "Report exported",
-        `Your filtered Balance report was saved as ${
-          savedDocument.name || "a JSON file"
-        }.`,
+        t("Report exported"),
+        t("Your filtered Balance report was saved as {name}.", {
+          name: savedDocument.name || t("a JSON file"),
+        }),
       );
     } catch (exportError) {
       if (
@@ -370,10 +346,10 @@ export default function BalanceScreen() {
       }
       console.error("Balance movement report export failed:", exportError);
       Alert.alert(
-        "Export failed",
+        t("Export failed"),
         exportError instanceof Error
           ? exportError.message
-          : "The balance report could not be exported.",
+          : t("The balance report could not be exported."),
       );
     } finally {
       setIsExportingReport(false);
@@ -449,25 +425,24 @@ export default function BalanceScreen() {
     const warningDetails = [];
     if (firstNegativeBalanceWarning.totalBalance !== undefined) {
       warningDetails.push(
-        `Your projected total balance is ${money(
-          firstNegativeBalanceWarning.totalBalance,
-          currency,
-        )}.`,
+        t("Your projected total balance is {amount}.", {
+          amount: money(firstNegativeBalanceWarning.totalBalance, currency),
+        }),
       );
     }
     for (const account of firstNegativeBalanceWarning.negativeAccounts) {
       warningDetails.push(
-        `${account.accountName} is projected to be ${money(
-          account.balance,
-          currency,
-        )}.`,
+        t("{account} is projected to be {amount}.", {
+          account: accountLabel(account.accountName),
+          amount: money(account.balance, currency),
+        }),
       );
     }
     Alert.alert(
-      "Balance warning",
-      `${warningDetails.join("\n")} This is projected for ${formatDisplayDate(
-        firstNegativeBalanceWarning.date,
-      )}. Review your planned expenses and income.`,
+      t("Balance warning"),
+      `${warningDetails.join("\n")} ${t("This is projected for {date}. Review your planned expenses and income.", {
+        date: formatDisplayDate(firstNegativeBalanceWarning.date),
+      })}`,
     );
   }, [currency, firstNegativeBalanceWarning, projection]);
 
@@ -526,8 +501,10 @@ export default function BalanceScreen() {
         .split(",")
         .map(name => name.trim())
         .filter(Boolean);
-      const names = [...new Set([...namesFromIds, ...namesFromJoin])];
-      const groupNames = names.length ? names : ["Untagged savings"];
+      // The joined text is only a fallback: a tag name containing a comma
+      // would otherwise be split into phantom groups.
+      const names = namesFromIds.length ? namesFromIds : namesFromJoin;
+      const groupNames = names.length ? names : [t("Untagged savings")];
       for (const name of groupNames) {
         const entries = groups.get(name) || [];
         if (!entries.some(entry => entry.id === item.id)) {
@@ -538,6 +515,19 @@ export default function BalanceScreen() {
     }
     return [...groups.entries()];
   }, [data?.tags, savings]);
+
+  const renderPlannedTotal = (group, entries) => {
+    const groupSpending = savingsUsage.filter(item =>
+      String(item.tags || "")
+        .split(",")
+        .map(name => name.trim().toLocaleLowerCase())
+        .includes(group.toLocaleLowerCase()),
+    );
+    const plan = getSavingsGroupPlan(entries, groupSpending, getLocalDate());
+    return plan
+      ? dateOptions(plannedTotalLabel(plan, currency))
+      : null;
+  };
 
   const selectMovement = event => {
     setSelectedMovement(event);
@@ -565,15 +555,15 @@ export default function BalanceScreen() {
       <>
         {breakdown.accounts.map(account => (
           <View key={account.id}>
-            {dateOptions(`${account.name}: ${money(account.balance, currency)}`)}
+            {dateOptions(`${accountLabel(account.name)}: ${money(account.balance, currency)}`)}
           </View>
         ))}
         {breakdown.unassignedBalance !== 0
           ? dateOptions(
-              `Unassigned: ${money(breakdown.unassignedBalance, currency)}`,
+              t("Unassigned: {amount}", { amount: money(breakdown.unassignedBalance, currency) }),
             )
           : null}
-        {dateOptions(`Total: ${money(breakdown.total, currency)}`)}
+        {dateOptions(t("Total: {amount}", { amount: money(breakdown.total, currency) }))}
       </>
     );
   };
@@ -581,15 +571,15 @@ export default function BalanceScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <CustomText type="header2" text="Balance" />
+        <CustomText type="header2" text={t("Balance")} />
         <CustomText
           type="body1"
-          text="Balances include dated transactions and planned subscription charges."
+          text={t("Balances include dated transactions and planned subscription charges.")}
           style={styles.intro}
         />
-        {error ? dateOptions("Could not load your balance details.") : null}
+        {error ? dateOptions(t("Could not load your balance details.")) : null}
         {projection && (
-          <EntryCard title="Total available now">
+          <EntryCard title={t("Total available now")}>
             <CustomText
               type="header2"
               text={money(projection.todayBalance, currency)}
@@ -597,19 +587,19 @@ export default function BalanceScreen() {
             />
           </EntryCard>
         )}
-        <Section title="Account balances">
+        <Section title={t("Account balances")}>
           {projection?.accountBalances.map(account => (
-            <EntryCard key={account.id} title={account.name}>
+            <EntryCard key={account.id} title={accountLabel(account.name)}>
               {dateOptions(money(account.balance, currency))}
             </EntryCard>
           ))}
           {projection && projection.unassignedBalance !== 0 ? (
-            <EntryCard title="Unassigned money">
+            <EntryCard title={t("Unassigned money")}>
               {dateOptions(money(projection.unassignedBalance, currency))}
             </EntryCard>
           ) : null}
         </Section>
-        <Section title={`Savings balances · ${money(savingsTotal, currency)}`}>
+        <Section title={t("Savings balances · {amount}", { amount: money(savingsTotal, currency) })}>
           <ScrollView
             nestedScrollEnabled
             showsVerticalScrollIndicator
@@ -638,6 +628,7 @@ export default function BalanceScreen() {
                     currency,
                   ),
                 )}
+                {renderPlannedTotal(group, entries)}
                 {entries.map(item => (
                   <View key={item.id} style={styles.savingItem}>
                     {dateOptions(
@@ -651,7 +642,7 @@ export default function BalanceScreen() {
               </EntryCard>
             ))}
             {savings.length === 0
-              ? dateOptions("Mark an expense as savings to start tracking a goal.")
+              ? dateOptions(t("Mark an expense as savings to start tracking a goal."))
               : null}
           </ScrollView>
         </Section>
@@ -659,11 +650,11 @@ export default function BalanceScreen() {
           <View style={dashboardStyles.headingRow}>
             <CustomText
               type="header3"
-              text="Movement dashboard"
+              text={t("Movement dashboard")}
               style={dashboardStyles.heading}
             />
             <CustomButton
-              text={isExportingReport ? "Exporting..." : "Export JSON"}
+              text={isExportingReport ? t("Exporting...") : t("Export JSON")}
               type="secondary"
               fontSize={13}
               disabled={
@@ -678,16 +669,16 @@ export default function BalanceScreen() {
           </View>
           <Dropdown
             data={[
-              { label: "All year", value: "year" },
-              { label: "By month", value: "month" },
-              { label: "Custom range", value: "custom" },
+              { label: t("All year"), value: "year" },
+              { label: t("By month"), value: "month" },
+              { label: t("Custom range"), value: "custom" },
             ]}
             labelField="label"
             onChange={item => {
               setRangeMode(item.value);
               setSelectedMovement(null);
             }}
-            placeholder="Date range"
+            placeholder={t("Date range")}
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={dashboardStyles.dropdown}
@@ -699,15 +690,9 @@ export default function BalanceScreen() {
               data={Array.from({ length: 12 }, (_, index) => {
                 const month = `${getLocalDate().slice(0, 4)}-${String(index + 1).padStart(2, "0")}`;
                 return {
-                  label: new Date(
-                    Number(month.slice(0, 4)),
-                    index,
-                    1,
-                    12,
-                  ).toLocaleDateString(undefined, {
-                    month: "long",
-                    year: "numeric",
-                  }),
+                  label: formatMonthYear(
+                    new Date(Number(month.slice(0, 4)), index, 1, 12),
+                  ),
                   value: month,
                 };
               })}
@@ -716,7 +701,7 @@ export default function BalanceScreen() {
                 setSelectedMonth(item.value);
                 setSelectedMovement(null);
               }}
-              placeholder="Select month"
+              placeholder={t("Select month")}
               placeholderStyle={dropdownStyles.placeholderText}
               selectedTextStyle={dropdownStyles.selectedText}
               style={dashboardStyles.dropdown}
@@ -727,7 +712,7 @@ export default function BalanceScreen() {
           {rangeMode === "custom" ? (
             <View style={dashboardStyles.dateRange}>
               <DatePicker
-                placeholder="From date"
+                placeholder={t("From date")}
                 setValue={value => {
                   setCustomFrom(value);
                   setSelectedMovement(null);
@@ -736,7 +721,7 @@ export default function BalanceScreen() {
                 value={customFrom}
               />
               <DatePicker
-                placeholder="To date"
+                placeholder={t("To date")}
                 setValue={value => {
                   setCustomTo(value);
                   setSelectedMovement(null);
@@ -748,16 +733,16 @@ export default function BalanceScreen() {
           ) : null}
           <Dropdown
             data={[
-              { label: "All movements", value: "all" },
-              { label: "Deductions", value: "deduction" },
-              { label: "Incomes", value: "income" },
+              { label: t("All movements"), value: "all" },
+              { label: t("Deductions"), value: "deduction" },
+              { label: t("Incomes"), value: "income" },
             ]}
             labelField="label"
             onChange={item => {
               setMovementFilter(item.value);
               setSelectedMovement(null);
             }}
-            placeholder="Movement type"
+            placeholder={t("Movement type")}
             placeholderStyle={dropdownStyles.placeholderText}
             selectedTextStyle={dropdownStyles.selectedText}
             style={dashboardStyles.dropdown}
@@ -765,7 +750,7 @@ export default function BalanceScreen() {
             valueField="value"
           />
           {!validDateRange ? (
-            dateOptions("Enter valid dates and make sure the start is not after the end.")
+            dateOptions(t("Enter valid dates and make sure the start is not after the end."))
           ) : (
             <ScrollView
               nestedScrollEnabled
@@ -800,7 +785,7 @@ export default function BalanceScreen() {
                   >
                     <CustomText
                       type="body1"
-                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(event.kind === "expense" ? projectedAmount : amount, currency)}${type === "subscription" ? " · Subscription" : type === "recurring deduction" ? " · Recurring deduction" : type === "account transfer" ? " · Account transfer" : ""}`}
+                      text={`${formatDisplayDate(event.date)} · ${event.name} · ${sign}${money(event.kind === "expense" ? projectedAmount : amount, currency)}${type === "subscription" ? t(" · Subscription") : type === "recurring deduction" ? t(" · Recurring deduction") : type === "account transfer" ? t(" · Account transfer") : ""}`}
                       style={[
                         dashboardStyles.movementText,
                         highlightedSalary && dashboardStyles.salaryIncome,
@@ -813,34 +798,29 @@ export default function BalanceScreen() {
                     projectedAmount !== amount ? (
                       <CustomText
                         type="body5"
-                        text={`Actual Value: ${money(amount, currency)}`}
+                        text={t("Actual Value: {amount}", { amount: money(amount, currency) })}
                         style={dashboardStyles.actualValue}
                       />
                     ) : null}
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    accessibilityLabel={`Edit ${event.name}`}
-                    accessibilityRole="button"
-                    hitSlop={8}
+                  <EditMovementButton
+                    label={t("Edit {name}", { name: event.name })}
                     onPress={() =>
                       navigation.navigate("Edit movement", {
                         movement: getEditTarget(event),
                       })
                     }
-                    style={dashboardStyles.editButton}
-                  >
-                    <PencilIcon />
-                  </TouchableOpacity>
+                  />
                   </View>
                 );
               })}
               {rangeMovements.length === 0
-                ? dateOptions("No movements match this date range and type.")
+                ? dateOptions(t("No movements match this date range and type."))
                 : null}
             </ScrollView>
           )}
           {balanceAtRangeEnd !== null ? (
-            <EntryCard title={`Total available by ${formatDisplayDate(selectedDateRange.to)}`}>
+            <EntryCard title={t("Total available by {date}", { date: formatDisplayDate(selectedDateRange.to) })}>
               {renderAccountBreakdown(
                 dashboardProjection,
                 selectedDateRange.to,
@@ -848,7 +828,7 @@ export default function BalanceScreen() {
             </EntryCard>
           ) : null}
           {selectedMovement && dashboardProjection ? (
-            <EntryCard title={`Total available by · ${formatDisplayDate(selectedMovement.date)}`}>
+            <EntryCard title={t("Total available by · {date}", { date: formatDisplayDate(selectedMovement.date) })}>
               {renderAccountBreakdown(
                 dashboardProjection,
                 selectedMovement.date,
@@ -904,37 +884,6 @@ const dashboardStyles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 8,
     borderRadius: 8,
-  },
-  editButton: {
-    width: 40,
-    height: 40,
-    marginLeft: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-    backgroundColor: "rgba(66,97,160,0.55)",
-  },
-  pencil: {
-    width: 18,
-    height: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ rotate: "45deg" }],
-  },
-  pencilBody: {
-    width: 5,
-    height: 11,
-    borderTopLeftRadius: 1,
-    borderTopRightRadius: 1,
-  },
-  pencilTip: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 2.5,
-    borderRightWidth: 2.5,
-    borderTopWidth: 5,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
   },
   selectedMovement: {
     backgroundColor: "rgba(66,97,160,0.18)",

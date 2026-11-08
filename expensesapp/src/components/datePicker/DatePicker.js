@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { t, useLanguage } from "../../i18n/i18n";
 import {
   Modal,
   Pressable,
@@ -6,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { formatDisplayDate } from "../../utils/dateFormatting";
+import { formatDisplayDate, formatMonthYear } from "../../utils/dateFormatting";
 import { getColors } from "../../utils/color-picker";
 import { getLocalDate } from "../../utils/database_connector";
 import { useTheme } from "../../utils/themeContext";
@@ -21,16 +22,25 @@ const formatLocalDate = date =>
     date.getDate(),
   ).padStart(2, "0")}`;
 
-const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const getWeekDays = () => [
+  t("Sun"),
+  t("Mon"),
+  t("Tue"),
+  t("Wed"),
+  t("Thu"),
+  t("Fri"),
+  t("Sat"),
+];
 
 export default function DatePicker({
   value,
   setValue,
   onChange,
-  placeholder = "Select date",
+  placeholder = t("Select date"),
   style,
   allowClear = false,
 }) {
+  useLanguage();
   useTheme();
   const [visible, setVisible] = useState(false);
   const [displayMonth, setDisplayMonth] = useState(() =>
@@ -138,10 +148,7 @@ export default function DatePicker({
                   { color: getColors("secondaryText") },
                 ]}
               >
-                {displayMonth.toLocaleDateString(undefined, {
-                  month: "long",
-                  year: "numeric",
-                })}
+                {formatMonthYear(displayMonth)}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -154,7 +161,7 @@ export default function DatePicker({
               </Pressable>
             </View>
             <View style={styles.calendarGrid}>
-              {WEEK_DAYS.map(day => (
+              {getWeekDays().map(day => (
                 <View key={`weekday-${day}`} style={styles.dayCell}>
                   <Text style={{ color: getColors("secondaryText"), fontSize: 13 }}>
                     {day}
@@ -201,7 +208,7 @@ export default function DatePicker({
               {allowClear ? (
                 <Pressable onPress={() => chooseDate("")}>
                   <Text style={{ color: getColors("accent"), fontSize: 15 }}>
-                    Clear
+                    {t("Clear")}
                   </Text>
                 </Pressable>
               ) : (
@@ -209,12 +216,12 @@ export default function DatePicker({
               )}
               <Pressable onPress={() => chooseDate(getLocalDate())}>
                 <Text style={{ color: getColors("accent"), fontSize: 15 }}>
-                  Today
+                  {t("Today")}
                 </Text>
               </Pressable>
               <Pressable onPress={close}>
                 <Text style={{ color: getColors("accent"), fontSize: 15 }}>
-                  Cancel
+                  {t("Cancel")}
                 </Text>
               </Pressable>
             </View>

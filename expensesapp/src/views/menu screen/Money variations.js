@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { t, useLanguage } from "../../i18n/i18n";
 import { Alert, ScrollView, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,6 +14,7 @@ import {
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
 export default function MoneyVariationsScreen({ navigation }) {
+  useLanguage();
   const { data, error } = useFinanceData();
   const [transactions, setTransactions] = useState([]);
 
@@ -21,7 +23,7 @@ export default function MoneyVariationsScreen({ navigation }) {
       setTransactions(await getExpensesBy());
     } catch (loadError) {
       console.error("Failed to load money variations:", loadError);
-      Alert.alert("Could not load transactions", "Please try again.");
+      Alert.alert(t("Could not load transactions"), t("Please try again."));
     }
   }, []);
 
@@ -94,16 +96,16 @@ export default function MoneyVariationsScreen({ navigation }) {
             {transaction.inflated_value !== null &&
             transaction.inflated_value !== undefined ? (
               dateOptions(
-                `Actual Value: ${money(transaction.value, currency)}`,
+                t("Actual Value: {amount}", { amount: money(transaction.value, currency) }),
               )
             ) : null}
             {transaction.recurrence_frequency
               ? dateOptions(
                   Number(transaction.recurrence_active ?? 1) === 0
-                    ? `Repeat stopped · was ${transaction.recurrence_frequency}`
-                    : `Repeats ${transaction.recurrence_frequency}${
+                    ? t("Repeat stopped · was {frequency}", { frequency: t(transaction.recurrence_frequency) })
+                    : `${t("Repeats {frequency}", { frequency: t(transaction.recurrence_frequency) })}${
                         transaction.recurrence_end_date
-                          ? ` until ${formatDisplayDate(transaction.recurrence_end_date)}`
+                          ? ` ${t("until {date}", { date: formatDisplayDate(transaction.recurrence_end_date) })}`
                           : ""
                       }`,
                 )
@@ -113,12 +115,15 @@ export default function MoneyVariationsScreen({ navigation }) {
               <CustomButton
                 onPress={() =>
                   Alert.alert(
-                    "Stop recurring deduction",
-                    `Stop future ${transaction.recurrence_frequency} deductions for ${transaction.name}? The original deduction and occurrences already passed will remain in your history.`,
+                    t("Stop recurring deduction"),
+                    t("Stop future {frequency} deductions for {name}? The original deduction and occurrences already passed will remain in your history.", {
+                      frequency: t(transaction.recurrence_frequency),
+                      name: transaction.name,
+                    }),
                     [
-                      { text: "Cancel", style: "cancel" },
+                      { text: t("Cancel"), style: "cancel" },
                       {
-                        text: "Stop repeating",
+                        text: t("Stop repeating"),
                         style: "destructive",
                         onPress: async () => {
                           try {
@@ -130,10 +135,10 @@ export default function MoneyVariationsScreen({ navigation }) {
                               stopError,
                             );
                             Alert.alert(
-                              "Could not stop recurrence",
+                              t("Could not stop recurrence"),
                               stopError instanceof Error
                                 ? stopError.message
-                                : "Please try again.",
+                                : t("Please try again."),
                             );
                           }
                         },
@@ -142,7 +147,7 @@ export default function MoneyVariationsScreen({ navigation }) {
                   )
                 }
                 style={styles.inlineButton}
-                text="Stop repeating"
+                text={t("Stop repeating")}
                 type="secondary"
               />
             ) : null}
@@ -153,16 +158,16 @@ export default function MoneyVariationsScreen({ navigation }) {
             <CustomButton
               onPress={() =>
                 Alert.alert(
-                  "Delete transaction",
-                  `Permanently delete "${transaction.name}"?${
+                  t("Delete transaction"),
+                  `${t('Permanently delete "{name}"?', { name: transaction.name })}${
                     transaction.recurrence_frequency
-                      ? " This also removes its recurring schedule and all projected occurrences. Past occurrences are calculated from this schedule and are not separate saved transactions."
+                      ? ` ${t("This also removes its recurring schedule and all projected occurrences. Past occurrences are calculated from this schedule and are not separate saved transactions.")}`
                       : ""
-                  } This cannot be undone.`,
+                  } ${t("This cannot be undone.")}`,
                   [
-                    { text: "Cancel", style: "cancel" },
+                    { text: t("Cancel"), style: "cancel" },
                     {
-                      text: "Delete",
+                      text: t("Delete"),
                       style: "destructive",
                       onPress: async () => {
                         try {
@@ -174,10 +179,10 @@ export default function MoneyVariationsScreen({ navigation }) {
                             deleteError,
                           );
                           Alert.alert(
-                            "Could not delete transaction",
+                            t("Could not delete transaction"),
                             deleteError instanceof Error
                               ? deleteError.message
-                              : "Please try again.",
+                              : t("Please try again."),
                           );
                         }
                       },
@@ -186,7 +191,7 @@ export default function MoneyVariationsScreen({ navigation }) {
                 )
               }
               style={styles.inlineButton}
-              text="Delete transaction"
+              text={t("Delete transaction")}
               type="warning"
             />
           </EntryCard>
@@ -198,28 +203,28 @@ export default function MoneyVariationsScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <CustomText type="header2" text="Money variations" />
+        <CustomText type="header2" text={t("Money variations")} />
         <CustomText
           type="body1"
-          text="Add income or deductions on any past, current, or future date."
+          text={t("Add income or deductions on any past, current, or future date.")}
           style={styles.intro}
         />
         <CustomButton
           onPress={() => navigation.navigate("Add general expense")}
           style={styles.actionButton}
-          text="Add money variation"
+          text={t("Add money variation")}
         />
-        <Section title="Repeating transactions">
-          {error ? dateOptions("Could not load your account settings.") : null}
+        <Section title={t("Repeating transactions")}>
+          {error ? dateOptions(t("Could not load your account settings.")) : null}
           {renderTransactionGroups(recurringTransactions)}
           {recurringTransactions.length === 0
-            ? dateOptions("No repeating transactions in this date range.")
+            ? dateOptions(t("No repeating transactions in this date range."))
             : null}
         </Section>
-        <Section title="Other transactions">
+        <Section title={t("Other transactions")}>
           {renderTransactionGroups(otherTransactions)}
           {otherTransactions.length === 0
-            ? dateOptions("No other transactions in this date range.")
+            ? dateOptions(t("No other transactions in this date range."))
             : null}
         </Section>
       </ScrollView>

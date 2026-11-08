@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { Alert, ScrollView } from "react-native";
+import { accountLabel, t, useLanguage } from "../../i18n/i18n";
+import { Alert, ScrollView, View } from "react-native";
 import Dropdown from "../../components/customDropdown/CustomDropdown";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { dropdownStyles } from "../../components/customDropdown/dropdownStylesCustom";
@@ -16,17 +17,42 @@ import {
   getLocalDate,
   isValidLocalDate,
   stopAccountTransferRecurrence,
+  updateCreditAccountDates,
 } from "../../utils/database_connector";
+import {
+  getCreditAccountStatus,
+  isCreditAccount,
+} from "../../utils/creditAccountSchedule";
 import {
   getAccountBalancesOnDate,
   getCashflowProjection,
 } from "../../utils/financeCalculations";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { dateOptions, EntryCard, money, Section, styles, useFinanceData } from "./Shared";
+
+const isValidCreditDay = value => {
+  const day = Number(value);
+  return value.trim() !== "" && Number.isInteger(day) && day >= 1 && day <= 31;
+};
+
+const describeDaysLeft = days =>
+  days === 0
+    ? t("today")
+    : days === 1
+      ? t("tomorrow")
+      : t("in {days} days", { days });
+
 export default function AccountsScreen() {
+  useLanguage();
   const { data, error, reload } = useFinanceData();
   const [name, setName] = useState("");
   const [openingBalance, setOpeningBalance] = useState("0");
+  const [accountType, setAccountType] = useState("bank");
+  const [cutDay, setCutDay] = useState("");
+  const [paymentDay, setPaymentDay] = useState("");
+  const [editingCreditId, setEditingCreditId] = useState(null);
+  const [editCutDay, setEditCutDay] = useState("");
+  const [editPaymentDay, setEditPaymentDay] = useState("");
   const [transferDate, setTransferDate] = useState(getLocalDate());
   const [transferAmount, setTransferAmount] = useState("");
   const [transferDescription, setTransferDescription] = useState("");
@@ -47,26 +73,146 @@ export default function AccountsScreen() {
         name,
         openingBalance,
       });
-      Alert.alert("Check account details", "Enter a name and valid opening balance.");
+      Alert.alert(t("Check account details"), t("Enter a name and valid opening balance."));
+      return;
+    }
+    const isCredit = accountType === "credit";
+    if (isCredit && (!isValidCreditDay(cutDay) || !isValidCreditDay(paymentDay))) {
+      Alert.alert(
+        t("Check credit dates"),
+        t("Enter the cut date and last payment date as days of the month, from 1 to 31."),
+      );
       return;
     }
     try {
-      await createAccount(name, "#4261a0", Number(openingBalance));
+      await createAccount(
+        name,
+        "#4261a0",
+        isCredit ? -Math.abs(Number(openingBalance)) : Number(openingBalance),
+        isCredit
+          ? { accountType: "credit", cutDay, paymentDay }
+          : undefined,
+      );
       setName("");
       setOpeningBalance("0");
+      setCutDay("");
+      setPaymentDay("");
+      setAccountType("bank");
       await reload();
     } catch (saveError) {
       console.error("Failed to save account:", saveError);
       Alert.alert(
-        "Could not add account",
-        saveError instanceof Error ? saveError.message : "Please try again.",
+        t("Could not add account"),
+        saveError instanceof Error ? saveError.message : t("Please try again."),
       );
     }
   };
 
+  const startEditingCredit = account => {
+    setEditingCreditId(account.id);
+    setEditCutDay(String(account.credit_cut_day ?? ""));
+    setEditPaymentDay(String(account.credit_payment_day ?? ""));
+  };
+
+  const saveCreditDates = async account => {
+    if (!isValidCreditDay(editCutDay) || !isValidCreditDay(editPaymentDay)) {
+      Alert.alert(
+        t("Check credit dates"),
+        t("Enter the cut date and last payment date as days of the month, from 1 to 31."),
+      );
+      return;
+    }
+    try {
+      await updateCreditAccountDates(account.id, editCutDay, editPaymentDay);
+      setEditingCreditId(null);
+      await reload();
+    } catch (saveError) {
+      console.error("Failed to update credit dates:", saveError);
+      Alert.alert(
+        t("Could not update credit dates"),
+        saveError instanceof Error ? saveError.message : t("Please try again."),
+      );
+    }
+  };
+
+  const renderCreditDetails = account => {
+    const status = projection
+      ? getCreditAccountStatus(account, projection)
+      : null;
+    return (
+      <>
+        {status ? (
+          <>
+            {dateOptions(t("Owed now: {amount}", { amount: money(status.owedNow, currency) }))}
+            {dateOptions(t("Next cut: {date}", { date: formatDisplayDate(status.nextCutDate) }))}
+            {dateOptions(
+              t("Pay by: {date} ({daysLeft})", {
+                date: formatDisplayDate(status.dueDate),
+                daysLeft: describeDaysLeft(status.daysUntilDue),
+              }),
+            )}
+            {dateOptions(
+              !status.statementClosed
+                ? t("Projected statement: {amount}", { amount: money(status.amountDue, currency) })
+                : status.amountDue > 0.005
+                  ? t("Amount due: {amount}", { amount: money(status.amountDue, currency) })
+                  : t("Current statement paid"),
+            )}
+            {status.pastDueDate
+              ? dateOptions(
+                  t("Past due since {date}: {amount}", {
+                    date: formatDisplayDate(status.pastDueDate),
+                    amount: money(status.pastDueAmount, currency),
+                  }),
+                )
+              : null}
+          </>
+        ) : null}
+        {editingCreditId === account.id ? (
+          <>
+            <CustomTextInput
+              keyboardType="number-pad"
+              placeholder={t("Cut date (day of month)")}
+              setValue={setEditCutDay}
+              style={styles.inputSpacing}
+              value={editCutDay}
+            />
+            <CustomTextInput
+              keyboardType="number-pad"
+              placeholder={t("Last payment date (day of month)")}
+              setValue={setEditPaymentDay}
+              style={styles.inputSpacing}
+              value={editPaymentDay}
+            />
+            <View style={styles.buttonRow}>
+              <CustomButton
+                onPress={() => saveCreditDates(account)}
+                style={styles.smallButton}
+                text={t("Save dates")}
+              />
+              <CustomButton
+                onPress={() => setEditingCreditId(null)}
+                style={styles.smallButton}
+                text={t("Cancel")}
+                type="secondary"
+              />
+            </View>
+          </>
+        ) : (
+          <CustomButton
+            onPress={() => startEditingCredit(account)}
+            style={styles.inlineButton}
+            text={t("Edit credit dates")}
+            type="secondary"
+          />
+        )}
+      </>
+    );
+  };
+
   const accounts = data?.accounts || [];
   const accountOptions = accounts.map(account => ({
-    label: account.name,
+    label: accountLabel(account.name),
     value: account.id,
   }));
   const saveTransfer = async () => {
@@ -87,8 +233,8 @@ export default function AccountsScreen() {
       sourceId === destinationId
     ) {
       Alert.alert(
-        "Check transfer details",
-        "Choose two different accounts, a valid date, and a positive amount.",
+        t("Check transfer details"),
+        t("Choose two different accounts, a valid date, and a positive amount."),
       );
       return;
     }
@@ -114,10 +260,14 @@ export default function AccountsScreen() {
       );
       if (sourceBalance < amount) {
         Alert.alert(
-          "Insufficient funds",
-          `Only ${money(sourceBalance, currency)} is projected in ${
-            accounts.find(account => account.id === sourceId)?.name || "the source account"
-          } on ${formatDisplayDate(transferDate)}.`,
+          t("Insufficient funds"),
+          t("Only {amount} is projected in {account} on {date}.", {
+            amount: money(sourceBalance, currency),
+            account:
+              accountLabel(accounts.find(account => account.id === sourceId)?.name) ||
+              t("the source account"),
+            date: formatDisplayDate(transferDate),
+          }),
         );
         return;
       }
@@ -168,8 +318,10 @@ export default function AccountsScreen() {
         });
         if (firstUnaffordableDate) {
           Alert.alert(
-            "Insufficient funds",
-            `This recurring transfer would overdraw the source account on ${formatDisplayDate(firstUnaffordableDate)}.`,
+            t("Insufficient funds"),
+            t("This recurring transfer would overdraw the source account on {date}.", {
+              date: formatDisplayDate(firstUnaffordableDate),
+            }),
           );
           return;
         }
@@ -192,10 +344,10 @@ export default function AccountsScreen() {
     } catch (transferError) {
       console.error("Failed to save account transfer:", transferError);
       Alert.alert(
-        "Could not transfer money",
+        t("Could not transfer money"),
         transferError instanceof Error
           ? transferError.message
-          : "Please try again.",
+          : t("Please try again."),
       );
     } finally {
       setIsSavingTransfer(false);
@@ -204,18 +356,20 @@ export default function AccountsScreen() {
 
   const confirmDeleteTransfer = transfer =>
     Alert.alert(
-      "Delete account transfer",
-      `Delete the ${money(transfer.amount, currency)} transfer from ${
-        transfer.from_account_name || "the source account"
-      } to ${transfer.to_account_name || "the destination account"}?${
+      t("Delete account transfer"),
+      `${t("Delete the {amount} transfer from {from} to {to}?", {
+        amount: money(transfer.amount, currency),
+        from: accountLabel(transfer.from_account_name) || t("the source account"),
+        to: accountLabel(transfer.to_account_name) || t("the destination account"),
+      })}${
         transfer.recurrence_frequency
-          ? " This will remove the recurring transfer, its historical record, and all derived occurrences."
+          ? ` ${t("This will remove the recurring transfer, its historical record, and all derived occurrences.")}`
           : ""
       }`,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("Delete"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -224,10 +378,10 @@ export default function AccountsScreen() {
             } catch (deleteError) {
               console.error("Failed to delete account transfer:", deleteError);
               Alert.alert(
-                "Could not delete transfer",
+                t("Could not delete transfer"),
                 deleteError instanceof Error
                   ? deleteError.message
-                  : "Please try again.",
+                  : t("Please try again."),
               );
             }
           },
@@ -237,16 +391,16 @@ export default function AccountsScreen() {
 
   const confirmStopTransfer = transfer =>
     Alert.alert(
-      "Stop recurring transfer",
-      `Stop future occurrences of the transfer from ${
-        transfer.from_account_name || "the source account"
-      } to ${transfer.to_account_name || "the destination account"}? Transfers due on or before ${formatDisplayDate(
-        getLocalDate(),
-      )} will remain in its history. This cannot be resumed; create a new transfer if needed.`,
+      t("Stop recurring transfer"),
+      t("Stop future occurrences of the transfer from {from} to {to}? Transfers due on or before {date} will remain in its history. This cannot be resumed; create a new transfer if needed.", {
+        from: accountLabel(transfer.from_account_name) || t("the source account"),
+        to: accountLabel(transfer.to_account_name) || t("the destination account"),
+        date: formatDisplayDate(getLocalDate()),
+      }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Stop transfer",
+          text: t("Stop transfer"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -255,10 +409,10 @@ export default function AccountsScreen() {
             } catch (stopError) {
               console.error("Failed to stop recurring transfer:", stopError);
               Alert.alert(
-                "Could not stop transfer",
+                t("Could not stop transfer"),
                 stopError instanceof Error
                   ? stopError.message
-                  : "Please try again.",
+                  : t("Please try again."),
               );
             }
           },
@@ -268,12 +422,14 @@ export default function AccountsScreen() {
 
   const confirmDelete = account =>
     Alert.alert(
-      "Delete account",
-      `Delete ${account.name}? Its opening balance, transactions, and scheduled charges will be moved to another account if one exists.`,
+      t("Delete account"),
+      t("Delete {name}? Its opening balance, transactions, and scheduled charges will be moved to another account if one exists.", {
+        name: accountLabel(account.name),
+      }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("Delete"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -281,7 +437,7 @@ export default function AccountsScreen() {
               await reload();
             } catch (deleteError) {
               console.error("Failed to delete account:", deleteError);
-              Alert.alert("Could not delete account", "Please try again.");
+              Alert.alert(t("Could not delete account"), t("Please try again."));
             }
           },
         },
@@ -291,56 +447,105 @@ export default function AccountsScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <CustomText type="header2" text="Accounts" />
+        <CustomText type="header2" text={t("Accounts")} />
         <CustomText
           type="body1"
-          text="Keep balances separate for each bank account, card, or cash wallet."
+          text={t("Keep balances separate for each bank account, card, or cash wallet.")}
           style={styles.intro}
         />
-        <Section title="Your accounts">
-          {error ? dateOptions("Could not load accounts. Reopen this section to retry.") : null}
+        <Section title={t("Your accounts")}>
+          {error ? dateOptions(t("Could not load accounts. Reopen this section to retry.")) : null}
           {data?.accounts.map(account => {
             const accountBalance = projection?.accountBalances.find(
               row => row.id === account.id,
             )?.balance;
             return (
-              <EntryCard key={account.id} title={account.name}>
-                {dateOptions(money(accountBalance, currency))}
+              <EntryCard
+                key={account.id}
+                title={
+                  isCreditAccount(account)
+                    ? t("{name} · Credit", { name: account.name })
+                    : accountLabel(account.name)
+                }
+              >
+                {isCreditAccount(account)
+                  ? renderCreditDetails(account)
+                  : dateOptions(money(accountBalance, currency))}
                 <CustomButton
                   onPress={() => confirmDelete(account)}
                   style={styles.inlineButton}
-                  text="Delete"
+                  text={t("Delete")}
                   type="warning"
                 />
               </EntryCard>
             );
           })}
           {data?.accounts.length === 0
-            ? dateOptions("No accounts yet. Add one below.")
+            ? dateOptions(t("No accounts yet. Add one below."))
             : null}
         </Section>
-        <Section title="Add an account">
+        <Section title={t("Add an account")}>
+          <View style={styles.buttonRow}>
+            <CustomButton
+              onPress={() => setAccountType("bank")}
+              style={styles.smallButton}
+              text={t("Bank or cash")}
+              type={accountType === "bank" ? "primary" : "secondary"}
+            />
+            <CustomButton
+              onPress={() => setAccountType("credit")}
+              style={styles.smallButton}
+              text={t("Credit")}
+              type={accountType === "credit" ? "primary" : "secondary"}
+            />
+          </View>
           <CustomTextInput
-            placeholder="Account name"
+            placeholder={t("Account name")}
             setValue={setName}
+            style={styles.inputSpacing}
             value={name}
           />
           <CustomTextInput
             keyboardType="decimal-pad"
-            placeholder="Opening balance"
+            placeholder={
+              accountType === "credit"
+                ? t("Amount currently owed")
+                : t("Opening balance")
+            }
             setValue={setOpeningBalance}
             style={styles.inputSpacing}
             value={openingBalance}
           />
-          <CustomButton onPress={save} style={styles.actionButton} text="Add account" />
+          {accountType === "credit" ? (
+            <>
+              <CustomTextInput
+                keyboardType="number-pad"
+                placeholder={t("Cut date (day of month)")}
+                setValue={setCutDay}
+                style={styles.inputSpacing}
+                value={cutDay}
+              />
+              <CustomTextInput
+                keyboardType="number-pad"
+                placeholder={t("Last payment date (day of month)")}
+                setValue={setPaymentDay}
+                style={styles.inputSpacing}
+                value={paymentDay}
+              />
+              {dateOptions(
+                t("Record purchases against this account, and pay it with a transfer from another account."),
+              )}
+            </>
+          ) : null}
+          <CustomButton onPress={save} style={styles.actionButton} text={t("Add account")} />
         </Section>
-        <Section title="Move money between accounts">
+        <Section title={t("Move money between accounts")}>
           {accounts.length < 2 ? (
-            dateOptions("Add at least two accounts to move money between them.")
+            dateOptions(t("Add at least two accounts to move money between them."))
           ) : (
             <>
               <DatePicker
-                placeholder="Transfer date"
+                placeholder={t("Transfer date")}
                 setValue={setTransferDate}
                 value={transferDate}
               />
@@ -348,7 +553,7 @@ export default function AccountsScreen() {
                 data={accountOptions}
                 labelField="label"
                 onChange={item => setFromAccountId(item.value)}
-                placeholder="From account"
+                placeholder={t("From account")}
                 placeholderStyle={dropdownStyles.placeholderText}
                 selectedTextStyle={dropdownStyles.selectedText}
                 dropdownPosition="bottom"
@@ -360,7 +565,7 @@ export default function AccountsScreen() {
                 data={accountOptions.filter(account => account.value !== fromAccountId)}
                 labelField="label"
                 onChange={item => setToAccountId(item.value)}
-                placeholder="To account"
+                placeholder={t("To account")}
                 placeholderStyle={dropdownStyles.placeholderText}
                 selectedTextStyle={dropdownStyles.selectedText}
                 dropdownPosition="bottom"
@@ -370,13 +575,13 @@ export default function AccountsScreen() {
               />
               <CustomTextInput
                 keyboardType="decimal-pad"
-                placeholder="Amount"
+                placeholder={t("Amount")}
                 setValue={setTransferAmount}
                 style={styles.inputSpacing}
                 value={transferAmount}
               />
               <CustomTextInput
-                placeholder="Description (optional)"
+                placeholder={t("Description (optional)")}
                 setValue={setTransferDescription}
                 style={styles.inputSpacing}
                 value={transferDescription}
@@ -384,20 +589,20 @@ export default function AccountsScreen() {
               <CustomCheckbox
                 checked={isRecurringTransfer}
                 containerStyles={styles.inputSpacing}
-                label="Recurring transfer"
+                label={t("Recurring transfer")}
                 onToggle={() => setIsRecurringTransfer(value => !value)}
               />
               {isRecurringTransfer ? (
                 <>
                   <Dropdown
                     data={[
-                      { label: "Weekly", value: "weekly" },
-                      { label: "Monthly", value: "monthly" },
-                      { label: "Yearly", value: "yearly" },
+                      { label: t("Weekly"), value: "weekly" },
+                      { label: t("Monthly"), value: "monthly" },
+                      { label: t("Yearly"), value: "yearly" },
                     ]}
                     labelField="label"
                     onChange={item => setTransferFrequency(item.value)}
-                    placeholder="Repeat frequency"
+                    placeholder={t("Repeat frequency")}
                     placeholderStyle={dropdownStyles.placeholderText}
                     selectedTextStyle={dropdownStyles.selectedText}
                     dropdownPosition="bottom"
@@ -407,7 +612,7 @@ export default function AccountsScreen() {
                   />
                   <DatePicker
                     allowClear
-                    placeholder="End date (optional)"
+                    placeholder={t("End date (optional)")}
                     setValue={setTransferEndDate}
                     style={styles.inputSpacing}
                     value={transferEndDate}
@@ -418,25 +623,25 @@ export default function AccountsScreen() {
                 disabled={isSavingTransfer}
                 onPress={saveTransfer}
                 style={styles.actionButton}
-                text={isSavingTransfer ? "Transferring..." : "Transfer money"}
+                text={isSavingTransfer ? t("Transferring...") : t("Transfer money")}
               />
             </>
           )}
         </Section>
-        <Section title="Account transfers">
+        <Section title={t("Account transfers")}>
           {(data?.accountTransfers || []).map(transfer => (
             <EntryCard
               key={transfer.id}
-              title={`${transfer.from_account_name || "Account"} → ${transfer.to_account_name || "Account"}`}
+              title={`${accountLabel(transfer.from_account_name) || t("Account")} → ${accountLabel(transfer.to_account_name) || t("Account")}`}
             >
               {dateOptions(
                 `${formatDisplayDate(transfer.date)} · ${money(transfer.amount, currency)}${
                   transfer.recurrence_frequency
                     ? Number(transfer.recurrence_active ?? 1) !== 1
-                      ? ` · Stopped ${transfer.recurrence_stopped_date ? formatDisplayDate(transfer.recurrence_stopped_date) : ""}`
-                      : ` · Repeats ${transfer.recurrence_frequency}${
+                      ? ` · ${t("Stopped {date}", { date: transfer.recurrence_stopped_date ? formatDisplayDate(transfer.recurrence_stopped_date) : "" })}`
+                      : ` · ${t("Repeats {frequency}", { frequency: t(transfer.recurrence_frequency) })}${
                           transfer.recurrence_end_date
-                            ? ` until ${formatDisplayDate(transfer.recurrence_end_date)}`
+                            ? ` ${t("until {date}", { date: formatDisplayDate(transfer.recurrence_end_date) })}`
                             : ""
                         }`
                     : ""
@@ -449,20 +654,20 @@ export default function AccountsScreen() {
                 <CustomButton
                   onPress={() => confirmStopTransfer(transfer)}
                   style={styles.inlineButton}
-                  text="Stop repeating"
+                  text={t("Stop repeating")}
                   type="secondary"
                 />
               ) : null}
               <CustomButton
                 onPress={() => confirmDeleteTransfer(transfer)}
                 style={styles.inlineButton}
-                text="Delete transfer"
+                text={t("Delete transfer")}
                 type="warning"
               />
             </EntryCard>
           ))}
           {!data?.accountTransfers?.length
-            ? dateOptions("No account transfers yet.")
+            ? dateOptions(t("No account transfers yet."))
             : null}
         </Section>
       </ScrollView>

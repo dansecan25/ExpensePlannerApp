@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from "react";
+import { accountLabel, t, useLanguage } from "../../i18n/i18n";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import {
   errorCodes,
@@ -29,16 +30,18 @@ import {
   replaceDatabaseFromBackup,
   saveSalaryScheduleChange,
   updateSalarySavingsMode,
+  updateLanguage,
   updateThemeMode,
 } from "../../utils/database_connector";
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { Context } from "../../utils/store";
+import LanguagePicker from "../../components/languagePicker/LanguagePicker";
 
-const payDateOptions = [
-  { label: "Every 15 days", value: "Quincenal" },
-  { label: "Last day of month", value: "Last day of month" },
-  { label: "Pre-last day of month", value: "Pre last day of month" },
-  { label: "Specific day of month", value: "Fixed date" },
+const getPayDateOptions = () => [
+  { label: t("Every 15 days"), value: "Quincenal" },
+  { label: t("Last day of month"), value: "Last day of month" },
+  { label: t("Pre-last day of month"), value: "Pre last day of month" },
+  { label: t("Specific day of month"), value: "Fixed date" },
 ];
 
 const payDayOptions = Array.from({ length: 31 }, (_, index) => ({
@@ -47,7 +50,9 @@ const payDayOptions = Array.from({ length: 31 }, (_, index) => ({
 }));
 
 export default function SettingsScreen({ navigation }) {
-  const { clear, pullFromDB, salaryStore, themeStore } = useContext(Context);
+  useLanguage();
+  const { clear, languageStore, pullFromDB, salaryStore, themeStore } =
+    useContext(Context);
   const [isResetting, setIsResetting] = useState(false);
   const [salaryAmount, setSalaryAmount] = useState("");
   const [salaryAccounts, setSalaryAccounts] = useState([]);
@@ -65,6 +70,25 @@ export default function SettingsScreen({ navigation }) {
   const [isImportingBackup, setIsImportingBackup] = useState(false);
   const [appearanceMode, setAppearanceMode] = useState(themeStore.mode);
   const [isSavingAppearance, setIsSavingAppearance] = useState(false);
+  const [isSavingLanguage, setIsSavingLanguage] = useState(false);
+
+  const saveLanguage = async language => {
+    setIsSavingLanguage(true);
+    try {
+      await updateLanguage(language);
+      languageStore.setLanguage(language);
+    } catch (languageError) {
+      console.error("Failed to update language:", languageError);
+      Alert.alert(
+        t("Could not update language"),
+        languageError instanceof Error
+          ? languageError.message
+          : t("Please try again."),
+      );
+    } finally {
+      setIsSavingLanguage(false);
+    }
+  };
 
   const saveAppearanceMode = async mode => {
     setIsSavingAppearance(true);
@@ -75,10 +99,10 @@ export default function SettingsScreen({ navigation }) {
     } catch (appearanceError) {
       console.error("Failed to update appearance:", appearanceError);
       Alert.alert(
-        "Could not update appearance",
+        t("Could not update appearance"),
         appearanceError instanceof Error
           ? appearanceError.message
-          : "Please try again.",
+          : t("Please try again."),
       );
     } finally {
       setIsSavingAppearance(false);
@@ -141,7 +165,7 @@ export default function SettingsScreen({ navigation }) {
       })
       .catch(error => {
         console.error("Failed to load salary settings:", error);
-        Alert.alert("Could not load salary settings", "Please try again.");
+        Alert.alert(t("Could not load salary settings"), t("Please try again."));
       });
     return () => {
       isMounted = false;
@@ -166,8 +190,8 @@ export default function SettingsScreen({ navigation }) {
         effectiveDate: selectedDate,
       });
       Alert.alert(
-        "Check salary change",
-        "Enter a valid salary and a valid effective date that is today or later.",
+        t("Check salary change"),
+        t("Enter a valid salary and a valid effective date that is today or later."),
       );
       return;
     }
@@ -183,14 +207,18 @@ export default function SettingsScreen({ navigation }) {
       });
       await pullFromDB();
       Alert.alert(
-        "Salary schedule saved",
-        `This change will apply ${effectiveMode === "immediate" ? "immediately" : `from ${formatDisplayDate(selectedDate)}`}.`,
+        t("Salary schedule saved"),
+        effectiveMode === "immediate"
+          ? t("This change will apply immediately.")
+          : t("This change will apply from {date}.", {
+              date: formatDisplayDate(selectedDate),
+            }),
       );
     } catch (error) {
       console.error("Failed to update salary:", error);
       Alert.alert(
-        "Could not update salary",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not update salary"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsSavingSalary(false);
@@ -207,8 +235,8 @@ export default function SettingsScreen({ navigation }) {
         savingsModeAmount,
       });
       Alert.alert(
-        "Check savings amount",
-        "Enter a monthly amount of zero or more.",
+        t("Check savings amount"),
+        t("Enter a monthly amount of zero or more."),
       );
       return;
     }
@@ -220,16 +248,16 @@ export default function SettingsScreen({ navigation }) {
       );
       await pullFromDB();
       Alert.alert(
-        "Savings mode updated",
+        t("Savings mode updated"),
         savingsModeEnabled
-          ? "Future projected salary deposits will be reduced by this monthly amount."
-          : "Savings mode is off. Future projected salary deposits will use the full net salary.",
+          ? t("Future projected salary deposits will be reduced by this monthly amount.")
+          : t("Savings mode is off. Future projected salary deposits will use the full net salary."),
       );
     } catch (error) {
       console.error("Failed to update Savings mode:", error);
       Alert.alert(
-        "Could not update Savings mode",
-        error instanceof Error ? error.message : "Please try again.",
+        t("Could not update Savings mode"),
+        error instanceof Error ? error.message : t("Please try again."),
       );
     } finally {
       setIsSavingSavingsMode(false);
@@ -238,12 +266,12 @@ export default function SettingsScreen({ navigation }) {
 
   const confirmFactoryReset = () => {
     Alert.alert(
-      "Reset app",
-      "This permanently deletes your settings, accounts, expenses, and other saved data. You will need to set up the app again.",
+      t("Reset app"),
+      t("This permanently deletes your settings, accounts, expenses, and other saved data. You will need to set up the app again."),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Reset app",
+          text: t("Reset app"),
           style: "destructive",
           onPress: async () => {
             setIsResetting(true);
@@ -253,10 +281,10 @@ export default function SettingsScreen({ navigation }) {
             } catch (error) {
               console.error("Factory reset failed:", error);
               Alert.alert(
-                "Reset failed",
+                t("Reset failed"),
                 error instanceof Error
                   ? error.message
-                  : "The app data could not be reset.",
+                  : t("The app data could not be reset."),
               );
             } finally {
               setIsResetting(false);
@@ -285,12 +313,14 @@ export default function SettingsScreen({ navigation }) {
       });
       if (!savedDocument || savedDocument.error) {
         throw new Error(
-          savedDocument?.error || "The backup file could not be saved.",
+          savedDocument?.error || t("The backup file could not be saved."),
         );
       }
       Alert.alert(
-        "Backup saved",
-        `Your database backup was saved as ${savedDocument.name || "expense-planner-backup.json"}.`,
+        t("Backup saved"),
+        t("Your database backup was saved as {name}.", {
+          name: savedDocument.name || "expense-planner-backup.json",
+        }),
       );
     } catch (error) {
       if (
@@ -301,10 +331,10 @@ export default function SettingsScreen({ navigation }) {
       }
       console.error("Database backup export failed:", error);
       Alert.alert(
-        "Export failed",
+        t("Export failed"),
         error instanceof Error
           ? error.message
-          : "The database backup could not be exported.",
+          : t("The database backup could not be exported."),
       );
     } finally {
       setIsExportingBackup(false);
@@ -316,7 +346,7 @@ export default function SettingsScreen({ navigation }) {
     try {
       const [document] = await pick({ type: [types.json] });
       if (!document || !document.hasRequestedType) {
-        throw new Error("Select a JSON database backup file.");
+        throw new Error(t("Select a JSON database backup file."));
       }
       const [localCopy] = await keepLocalCopy({
         files: [
@@ -329,7 +359,7 @@ export default function SettingsScreen({ navigation }) {
       });
       if (!localCopy || localCopy.status !== "success") {
         throw new Error(
-          localCopy?.copyError || "The selected backup file could not be read.",
+          localCopy?.copyError || t("The selected backup file could not be read."),
         );
       }
       const localPath = decodeURIComponent(
@@ -338,16 +368,16 @@ export default function SettingsScreen({ navigation }) {
       const backupContent = await FileSystem.readFile(localPath, "utf8");
       const shouldReplace = await new Promise(resolve => {
         Alert.alert(
-          "Replace all app data?",
-          "Importing this backup will replace all accounts, settings, transactions, subscriptions, and savings data currently stored on this phone.",
+          t("Replace all app data?"),
+          t("Importing this backup will replace all accounts, settings, transactions, subscriptions, and savings data currently stored on this phone."),
           [
             {
-              text: "Cancel",
+              text: t("Cancel"),
               style: "cancel",
               onPress: () => resolve(false),
             },
             {
-              text: "Replace data",
+              text: t("Replace data"),
               style: "destructive",
               onPress: () => resolve(true),
             },
@@ -362,8 +392,8 @@ export default function SettingsScreen({ navigation }) {
       clear();
       await pullFromDB();
       Alert.alert(
-        "Backup restored",
-        "The app's saved data has been replaced with the backup.",
+        t("Backup restored"),
+        t("The app's saved data has been replaced with the backup."),
       );
     } catch (error) {
       if (
@@ -374,10 +404,10 @@ export default function SettingsScreen({ navigation }) {
       }
       console.error("Database backup import failed:", error);
       Alert.alert(
-        "Import failed",
+        t("Import failed"),
         error instanceof Error
           ? error.message
-          : "The selected backup could not be imported.",
+          : t("The selected backup could not be imported."),
       );
     } finally {
       setIsImportingBackup(false);
@@ -387,23 +417,23 @@ export default function SettingsScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <CustomText type="header2" text="Settings" />
+        <CustomText type="header2" text={t("Settings")} />
         <CustomText
           type="body3"
-          text="Manage your app configuration and saved data."
+          text={t("Manage your app configuration and saved data.")}
           style={styles.description}
         />
         <View style={styles.section}>
-          <CustomText type="header3" text="Appearance" />
+          <CustomText type="header3" text={t("Appearance")} />
           <CustomText
             type="body1"
-            text="Follow your phone's appearance by default, or choose a theme for the app."
+            text={t("Follow your phone's appearance by default, or choose a theme for the app.")}
             style={styles.resetDescription}
           />
           <CustomCheckbox
             checked={appearanceMode === "system"}
             containerStyles={styles.appearanceToggle}
-            label="Use device appearance"
+            label={t("Use device appearance")}
             onToggle={() =>
               setFollowDevice(appearanceMode !== "system")
             }
@@ -414,7 +444,7 @@ export default function SettingsScreen({ navigation }) {
               (appearanceMode === "system" && themeStore.systemIsDark)
             }
             containerStyles={styles.appearanceToggle}
-            label="Dark mode"
+            label={t("Dark mode")}
             onToggle={() =>
               saveAppearanceMode(
                 appearanceMode === "dark" ||
@@ -425,26 +455,39 @@ export default function SettingsScreen({ navigation }) {
             }
           />
           {isSavingAppearance ? (
-            <CustomText type="body5" text="Saving appearance..." />
+            <CustomText type="body5" text={t("Saving appearance...")} />
           ) : null}
+        </View>
+        <View style={styles.section}>
+          <CustomText type="header3" text={t("Language")} />
+          <CustomText
+            type="body1"
+            text={t("Choose the language used throughout the app.")}
+            style={styles.resetDescription}
+          />
+          <LanguagePicker
+            disabled={isSavingLanguage}
+            onChange={saveLanguage}
+            value={languageStore.language}
+          />
         </View>
         {salaryStore.profileExists ? (
           <View style={styles.section}>
-            <CustomText type="header3" text="Income and pay schedule" />
+            <CustomText type="header3" text={t("Income and pay schedule")} />
             <CustomText
               type="body1"
-              text="Change your salary, deposit schedule, or employment status. Fixed salary deposits are projected automatically; variable income must be recorded manually."
+              text={t("Change your salary, deposit schedule, or employment status. Fixed salary deposits are projected automatically; variable income must be recorded manually.")}
               style={styles.resetDescription}
             />
             <Dropdown
               data={[
-                { label: "Fixed salary", value: "fixed" },
-                { label: "Variable income", value: "variable" },
-                { label: "Unemployed (no future salary)", value: "unemployed" },
+                { label: t("Fixed salary"), value: "fixed" },
+                { label: t("Variable income"), value: "variable" },
+                { label: t("Unemployed (no future salary)"), value: "unemployed" },
               ]}
               labelField="label"
               onChange={item => setIncomeType(item.value)}
-              placeholder="Income status"
+              placeholder={t("Income status")}
               placeholderStyle={dropdownStyles.placeholderText}
               selectedTextStyle={dropdownStyles.selectedText}
               style={styles.input}
@@ -455,25 +498,25 @@ export default function SettingsScreen({ navigation }) {
               <>
                 <CustomText
                   type="body3"
-                  text={`Gross monthly salary (${salaryStore.currency || "CRC"})`}
+                  text={t("Gross monthly salary ({currency})", { currency: salaryStore.currency || "CRC" })}
                   style={styles.inputLabel}
                 />
                 <CustomTextInput
                   keyboardType="decimal-pad"
-                  placeholder="Monthly gross salary"
+                  placeholder={t("Monthly gross salary")}
                   setValue={setSalaryAmount}
                   value={salaryAmount}
                 />
                 <CustomText
                   type="body3"
-                  text="Salary deposit schedule"
+                  text={t("Salary deposit schedule")}
                   style={styles.inputLabel}
                 />
                 <Dropdown
-                  data={payDateOptions}
+                  data={getPayDateOptions()}
                   labelField="label"
                   onChange={item => setPayDate(item.value)}
-                  placeholder="Pay schedule"
+                  placeholder={t("Pay schedule")}
                   placeholderStyle={dropdownStyles.placeholderText}
                   selectedTextStyle={dropdownStyles.selectedText}
                   style={styles.input}
@@ -485,7 +528,7 @@ export default function SettingsScreen({ navigation }) {
                     data={payDayOptions}
                     labelField="label"
                     onChange={item => setPayDay(item.value)}
-                    placeholder="Day of month"
+                    placeholder={t("Day of month")}
                     placeholderStyle={dropdownStyles.placeholderText}
                     selectedTextStyle={dropdownStyles.selectedText}
                     style={styles.input}
@@ -499,25 +542,25 @@ export default function SettingsScreen({ navigation }) {
                 type="body1"
                 text={
                   incomeType === "unemployed"
-                    ? "No future salary deposits will be projected until you set an income schedule again."
-                    : "No automatic salary deposits will be projected. Record received income under Money variations."
+                    ? t("No future salary deposits will be projected until you set an income schedule again.")
+                    : t("No automatic salary deposits will be projected. Record received income under Money variations.")
                 }
                 style={styles.resetDescription}
               />
             )}
             <CustomText
               type="body3"
-              text="Salary deposit account"
+              text={t("Salary deposit account")}
               style={styles.inputLabel}
             />
             <Dropdown
               data={salaryAccounts.map(account => ({
-                label: account.name,
+                label: accountLabel(account.name),
                 value: account.id,
               }))}
               labelField="label"
               onChange={item => setSalaryAccountId(item.value)}
-              placeholder="Select account"
+              placeholder={t("Select account")}
               placeholderStyle={dropdownStyles.placeholderText}
               selectedTextStyle={dropdownStyles.selectedText}
               style={styles.input}
@@ -526,17 +569,17 @@ export default function SettingsScreen({ navigation }) {
             />
             <CustomText
               type="body3"
-              text="When should this change apply?"
+              text={t("When should this change apply?")}
               style={styles.inputLabel}
             />
             <Dropdown
               data={[
-                { label: "Immediately", value: "immediate" },
-                { label: "From a specific date", value: "specific" },
+                { label: t("Immediately"), value: "immediate" },
+                { label: t("From a specific date"), value: "specific" },
               ]}
               labelField="label"
               onChange={item => setEffectiveMode(item.value)}
-              placeholder="Effective date"
+              placeholder={t("Effective date")}
               placeholderStyle={dropdownStyles.placeholderText}
               selectedTextStyle={dropdownStyles.selectedText}
               style={styles.input}
@@ -545,7 +588,7 @@ export default function SettingsScreen({ navigation }) {
             />
             {effectiveMode === "specific" ? (
               <DatePicker
-                placeholder="Effective date"
+                placeholder={t("Effective date")}
                 setValue={setEffectiveDate}
                 value={effectiveDate}
               />
@@ -554,34 +597,34 @@ export default function SettingsScreen({ navigation }) {
               disabled={isSavingSalary}
               onPress={saveSalaryAmount}
               style={styles.salaryButton}
-              text={isSavingSalary ? "Saving..." : "Save income schedule"}
+              text={isSavingSalary ? t("Saving...") : t("Save income schedule")}
               type="secondary"
             />
           </View>
         ) : null}
         {salaryStore.profileExists && incomeType === "fixed" ? (
           <View style={styles.section}>
-            <CustomText type="header3" text="Savings mode" />
+            <CustomText type="header3" text={t("Savings mode")} />
             <CustomText
               type="body1"
-              text="Reduce projected salary income to make your available balance appear lower. The withheld amount is monthly and does not create a separate account or transaction."
+              text={t("Reduce projected salary income to make your available balance appear lower. The withheld amount is monthly and does not create a separate account or transaction.")}
               style={styles.resetDescription}
             />
             <CustomCheckbox
               checked={savingsModeEnabled}
-              label="Savings mode"
+              label={t("Savings mode")}
               onToggle={() =>
                 setSavingsModeEnabled(enabled => !enabled)
               }
             />
             <CustomText
               type="body3"
-              text="Amount to remove from salary:"
+              text={t("Amount to remove from salary:")}
               style={styles.savingsModeLabel}
             />
             <CustomTextInput
               keyboardType="decimal-pad"
-              placeholder="Monthly amount"
+              placeholder={t("Monthly amount")}
               setValue={setSavingsModeAmount}
               value={savingsModeAmount}
             />
@@ -589,29 +632,29 @@ export default function SettingsScreen({ navigation }) {
               disabled={isSavingSavingsMode}
               onPress={saveSavingsMode}
               style={styles.salaryButton}
-              text={isSavingSavingsMode ? "Saving..." : "Save Savings mode"}
+              text={isSavingSavingsMode ? t("Saving...") : t("Save Savings mode")}
               type="secondary"
             />
           </View>
         ) : null}
         <View style={styles.section}>
-          <CustomText type="header3" text="Income deductions" />
+          <CustomText type="header3" text={t("Income deductions")} />
           <CustomText
             type="body1"
-            text="Review your Hacienda brackets and other configured salary deductions."
+            text={t("Review your Hacienda brackets and other configured salary deductions.")}
             style={styles.resetDescription}
           />
           <CustomButton
             onPress={() => navigation.navigate("Taxes config")}
-            text="Configure deductions"
+            text={t("Configure deductions")}
             type="secondary"
           />
         </View>
         <View style={styles.section}>
-          <CustomText type="header3" text="Database backup" />
+          <CustomText type="header3" text={t("Database backup")} />
           <CustomText
             type="body1"
-            text="Export a JSON backup to your phone, or restore app data from a previously exported backup."
+            text={t("Export a JSON backup to your phone, or restore app data from a previously exported backup.")}
             style={styles.resetDescription}
           />
           <View style={styles.backupButtons}>
@@ -619,30 +662,30 @@ export default function SettingsScreen({ navigation }) {
               disabled={isExportingBackup || isImportingBackup}
               onPress={exportBackup}
               style={styles.backupButton}
-              text={isExportingBackup ? "Exporting..." : "Export database"}
+              text={isExportingBackup ? t("Exporting...") : t("Export database")}
               type="secondary"
             />
             <CustomButton
               disabled={isExportingBackup || isImportingBackup}
               onPress={importBackup}
               style={styles.backupButton}
-              text={isImportingBackup ? "Importing..." : "Import database"}
+              text={isImportingBackup ? t("Importing...") : t("Import database")}
               type="secondary"
             />
           </View>
         </View>
         <View style={styles.resetSection}>
-          <CustomText type="header3" text="Factory reset" />
+          <CustomText type="header3" text={t("Factory reset")} />
           <CustomText
             type="body1"
-            text="Delete all saved data and return to first-time setup."
+            text={t("Delete all saved data and return to first-time setup.")}
             style={styles.resetDescription}
           />
           <CustomButton
             disabled={isResetting}
             onPress={confirmFactoryReset}
             style={styles.resetButton}
-            text={isResetting ? "Resetting..." : "Reset app"}
+            text={isResetting ? t("Resetting...") : t("Reset app")}
             type="warning"
           />
         </View>

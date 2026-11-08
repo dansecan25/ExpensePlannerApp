@@ -15,6 +15,7 @@ import { Context } from './utils/store.js';
 import { observer } from 'mobx-react-lite';
 import { ThemeContext } from './utils/themeContext.js';
 import EditMovementScreen from './views/EditMovementScreen.js';
+import { LanguageContext, t } from './i18n/i18n.js';
 
 const Stack = createNativeStackNavigator();
 
@@ -24,6 +25,7 @@ const MainApp = observer(() => {
     pullFromDB,
     salaryStore,
     themeStore,
+    languageStore,
     setThemeOnStore,
   } = useContext(Context);
 
@@ -51,7 +53,7 @@ const MainApp = observer(() => {
       await pullFromDB();
     } catch (error) {
       console.error('Failed to initialize finance database:', error);
-      setLoadError(error instanceof Error ? error.message : 'Unknown database error.');
+      setLoadError(error instanceof Error ? error.message : t('Unknown database error.'));
     } finally {
       setIsLoading(false);
     }
@@ -68,16 +70,17 @@ const MainApp = observer(() => {
   if (loadError) {
     return (
       <View style={[styles.errorScreen, { backgroundColor: getColors('background') }]}>
-        <Text style={styles.errorTitle}>Could not open your planner</Text>
+        <Text style={styles.errorTitle}>{t('Could not open your planner')}</Text>
         <Text style={styles.errorMessage}>{loadError}</Text>
         <TouchableOpacity accessibilityRole="button" onPress={load} style={styles.retryButton}>
-          <Text style={styles.retryText}>Retry</Text>
+          <Text style={styles.retryText}>{t('Retry')}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
+    <LanguageContext.Provider value={{ language: languageStore.language }}>
     <ThemeContext.Provider value={{ isDark }}>
     <NavigationContainer>
       <Stack.Navigator
@@ -128,6 +131,7 @@ const MainApp = observer(() => {
       </Stack.Navigator>
     </NavigationContainer>
     </ThemeContext.Provider>
+    </LanguageContext.Provider>
   );
 })
 

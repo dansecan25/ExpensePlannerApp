@@ -1,5 +1,6 @@
 import { Alert } from "react-native";
 import { formatDisplayDate } from "./dateFormatting";
+import { accountLabel, t } from "../i18n/i18n";
 
 const formatAmount = (amount, currency) =>
   `${Number(amount || 0).toLocaleString(undefined, {
@@ -10,16 +11,17 @@ const formatAmount = (amount, currency) =>
 export const confirmProjectedNegativeBalance = (
   risk,
   currency,
-  continueLabel = "Add anyways",
+  continueLabel = t("Add anyways"),
 ) =>
   new Promise(resolve => {
     const details = [];
     if (risk.negativeAccount) {
       details.push(
-        `${risk.negativeAccount.accountName} is projected to be ${formatAmount(
-          risk.negativeAccount.balance,
-          currency,
-        )} on ${formatDisplayDate(risk.negativeAccount.date)}.`,
+        t("{account} is projected to be {amount} on {date}.", {
+          account: accountLabel(risk.negativeAccount.accountName),
+          amount: formatAmount(risk.negativeAccount.balance, currency),
+          date: formatDisplayDate(risk.negativeAccount.date),
+        }),
       );
     }
     if (risk.negativeDate) {
@@ -27,10 +29,10 @@ export const confirmProjectedNegativeBalance = (
         entry => entry.date === risk.negativeDate,
       )?.balance;
       details.push(
-        `The combined balance is projected to be ${formatAmount(
-          totalBalance,
-          currency,
-        )} on ${formatDisplayDate(risk.negativeDate)}.`,
+        t("The combined balance is projected to be {amount} on {date}.", {
+          amount: formatAmount(totalBalance, currency),
+          date: formatDisplayDate(risk.negativeDate),
+        }),
       );
     }
 
@@ -43,10 +45,10 @@ export const confirmProjectedNegativeBalance = (
     };
 
     Alert.alert(
-      "Negative balance projected",
-      `${details.join("\n")}\n\nContinue only if you have a contingency plan.`,
+      t("Negative balance projected"),
+      `${details.join("\n")}\n\n${t("Continue only if you have a contingency plan.")}`,
       [
-        { text: "OK", style: "cancel", onPress: () => finish(false) },
+        { text: t("OK"), style: "cancel", onPress: () => finish(false) },
         {
           text: continueLabel,
           style: "destructive",

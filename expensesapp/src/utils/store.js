@@ -3,6 +3,7 @@ import {flow, types} from "mobx-state-tree";
 import { createContext } from "react";
 import SalaryModel from "./salaryStore";
 import ThemeStore from "./themeStore";
+import LanguageStore from "./languageStore";
 import { getSalaryRow } from "./database_connector";
 
 
@@ -10,6 +11,7 @@ const Storage = types.model({
     salaryStore:types.optional(SalaryModel,{}),
     themeStore: types.optional(ThemeStore, {
     }),
+    languageStore: types.optional(LanguageStore, {}),
 }).actions(self=> ({
     pullFromDB:flow(function* (){
         const result = yield getSalaryRow();
@@ -26,6 +28,7 @@ const Storage = types.model({
                 Boolean(result.setup_complete)
             );
             self.themeStore.setMode(result.theme_mode || "system");
+            self.languageStore.setLanguage(result.language);
         } else {
             self.themeStore.setMode("system");
         }
