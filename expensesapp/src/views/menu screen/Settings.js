@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from "react";
 import { accountLabel, t, useLanguage } from "../../i18n/i18n";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
 import {
   errorCodes,
   isErrorWithCode,
@@ -36,6 +36,14 @@ import {
 import { formatDisplayDate } from "../../utils/dateFormatting";
 import { Context } from "../../utils/store";
 import LanguagePicker from "../../components/languagePicker/LanguagePicker";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installWithPrompts,
+  isUpdaterSupported,
+  useAppUpdate,
+} from "../../utils/appUpdater";
+import { RELEASES_PAGE_URL } from "../../constants/appUpdates";
 
 const getPayDateOptions = () => [
   { label: t("Every 15 days"), value: "Quincenal" },
@@ -71,6 +79,38 @@ export default function SettingsScreen({ navigation }) {
   const [appearanceMode, setAppearanceMode] = useState(themeStore.mode);
   const [isSavingAppearance, setIsSavingAppearance] = useState(false);
   const [isSavingLanguage, setIsSavingLanguage] = useState(false);
+  const appUpdate = useAppUpdate();
+
+  const updateStatusText = () => {
+    const { status, release, progress, error } = appUpdate;
+    switch (status) {
+      case "checking":
+        return t("Checking for updates...");
+      case "upToDate":
+        return t("You have the latest version.");
+      case "available":
+        return t("Version {version} is available.", { version: release.version });
+      case "downloading":
+        return t("Downloading update... {percent}%", { percent: Math.round(progress * 100) });
+      case "readyToInstall":
+        return t("Version {version} is ready to install.", { version: release.version });
+      case "error":
+        return t("Update failed: {message}", { message: error });
+      default:
+        return "";
+    }
+  };
+
+  const updateAction = () => {
+    const { status, release } = appUpdate;
+    if (status === "readyToInstall") {
+      return { text: t("Install update"), onPress: installWithPrompts };
+    }
+    if (release && ["available", "error"].includes(status)) {
+      return { text: t("Download and install"), onPress: downloadUpdate };
+    }
+    return null;
+  };
 
   const saveLanguage = async language => {
     setIsSavingLanguage(true);
@@ -674,6 +714,45 @@ export default function SettingsScreen({ navigation }) {
             />
           </View>
         </View>
+        {isUpdaterSupported ? (
+          <View style={styles.section}>
+            <CustomText type="header3" text={t("App updates")} />
+            <CustomText
+              type="body1"
+              text={t("Installed version: {version}", {
+                version: appUpdate.currentVersion ?? "-",
+              })}
+              style={styles.resetDescription}
+            />
+            {updateStatusText() ? (
+              <CustomText type="body5" text={updateStatusText()} style={styles.updateStatus} />
+            ) : null}
+            <View style={styles.backupButtons}>
+              <CustomButton
+                disabled={["checking", "downloading"].includes(appUpdate.status)}
+                onPress={() => checkForUpdates()}
+                style={styles.backupButton}
+                text={t("Check for updates")}
+                type="secondary"
+              />
+              {updateAction() ? (
+                <CustomButton
+                  disabled={appUpdate.status === "downloading"}
+                  onPress={updateAction().onPress}
+                  style={styles.backupButton}
+                  text={updateAction().text}
+                  type="secondary"
+                />
+              ) : null}
+              <CustomButton
+                onPress={() => Linking.openURL(RELEASES_PAGE_URL)}
+                style={styles.backupButton}
+                text={t("View releases")}
+                type="ghost"
+              />
+            </View>
+          </View>
+        ) : null}
         <View style={styles.resetSection}>
           <CustomText type="header3" text={t("Factory reset")} />
           <CustomText
@@ -749,5 +828,8 @@ const styles = StyleSheet.create({
   },
   backupButton: {
     alignSelf: "flex-start",
+  },
+  updateStatus: {
+    marginBottom: 12,
   },
 });

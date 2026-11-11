@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { AppState, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -16,6 +16,8 @@ import { observer } from 'mobx-react-lite';
 import { ThemeContext } from './utils/themeContext.js';
 import EditMovementScreen from './views/EditMovementScreen.js';
 import { LanguageContext, t } from './i18n/i18n.js';
+import UpdateBanner from './components/updateBanner/UpdateBanner.js';
+import { checkForUpdates } from './utils/appUpdater.js';
 
 const Stack = createNativeStackNavigator();
 
@@ -62,6 +64,21 @@ const MainApp = observer(() => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Looks for a newer GitHub release at startup and when the app comes back to the
+  // foreground; silent checks are throttled and stay quiet when offline.
+  useEffect(() => {
+    if (isLoading || loadError) {
+      return undefined;
+    }
+    checkForUpdates({ silent: true });
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        checkForUpdates({ silent: true });
+      }
+    });
+    return () => subscription.remove();
+  }, [isLoading, loadError]);
 
   if (isLoading) {
     return null;
@@ -130,6 +147,7 @@ const MainApp = observer(() => {
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
+    <UpdateBanner />
     </ThemeContext.Provider>
     </LanguageContext.Provider>
   );
