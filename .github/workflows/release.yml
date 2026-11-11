@@ -62,6 +62,9 @@ jobs:
           java-version: 17
 
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          # The default "enhanced" cache is a proprietary component; basic is MIT-licensed.
+          cache-provider: basic
 
       - name: Install dependencies
         run: |
